@@ -25,7 +25,7 @@ source-repository head
 
 library
   exposed-modules:
-      File
+      Files
       Lib
   other-modules:
       Paths_PPublihs
@@ -38,6 +38,7 @@ library
       base >=4.7 && <5
     , bytestring
     , cryptohash-md5
+    , transformers
   default-language: Haskell2010
 
 executable PPublihs-exe
@@ -54,6 +55,7 @@ executable PPublihs-exe
     , base >=4.7 && <5
     , bytestring
     , cryptohash-md5
+    , transformers
   default-language: Haskell2010
 
 test-suite PPublihs-test
@@ -71,4 +73,5 @@ test-suite PPublihs-test
     , base >=4.7 && <5
     , bytestring
     , cryptohash-md5
+    , transformers
   default-language: Haskell2010
