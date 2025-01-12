@@ -30,6 +30,8 @@ dependencies:
 - hspec
 - cereal
 - directory
+- time
+- containers
 
 ghc-options:
 - -Wall

@@ -6,8 +6,6 @@
 
 module Files where
 
-import qualified Crypto.Hash.MD5 as MD5
-import qualified Data.ByteString as BS
 import System.FilePath (takeExtension, takeFileName)
 import Text.Read (readMaybe)
 import System.Process ( readProcess )
@@ -17,14 +15,19 @@ import System.FilePath.Posix (dropExtension)
 import Control.Exception (throwIO, catch, IOException, Exception)
 import Data.Data (Typeable)
 import GHC.Generics (Generic)
+import System.Directory (getModificationTime, listDirectory)
+import Data.Time.Clock (UTCTime)
+import Control.Monad (liftM, liftM2)
+import Data.List (find)
+import Data.Char (toLower)
 
 data ContentException = UnknownExtension | ReadAudioLength String | RunFFProbe String deriving (Show, Typeable)
 
 instance Exception ContentException
 
-data FileType = TextFile | VideoFile | ImageFile | AudioFile deriving Show
+data FileType = TextFile | VideoFile | ImageFile | AudioFile deriving (Show,Eq)
 data Content = Text String | Video | Image | Audio (Maybe Integer) String Float deriving (Show,Eq)
-data File = File{path::FilePath, md5::BS.ByteString} deriving (Show, Generic)
+data File = File{path::FilePath, lastMod::UTCTime} deriving (Show, Generic)
 
 textExt = [".txt"]
 textExt :: [String]
@@ -71,5 +74,16 @@ loadContent VideoFile _ = return Video
 loadContent ImageFile _ = return Image
 
 loadFile::FilePath -> IO File
-loadFile filepath = do filedata <- BS.readFile filepath
-                       return $ File filepath (MD5.hash filedata)
+loadFile filepath = File filepath <$> getModificationTime filepath
+
+
+filterFiles :: FileType -> [FilePath] -> [FilePath]
+filterFiles ft = filter ((==Just ft) . fileType)
+
+searchFile :: FileType -> String -> [FilePath] -> Maybe FilePath
+searchFile t name = find (liftM2 (&&) ((==name) . map toLower . dropExtension . takeFileName)
+                       ((==Just t) . fileType))
+
+tryLoad :: FilePath -> IO (Maybe File)
+tryLoad path = (Just <$> loadFile path)
+  `catch` \(_ :: IOException)->return Nothing
