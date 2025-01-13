@@ -1,0 +1,56 @@
+#+title: Readme
+
+* Goal
+- Album publishing Helper
+- Order Tracks
+- Simple Tool
+- Select Audio from Different Locations -> don't Rename for order
+- User Friendly
+- Auto detect environment
+  Folder Name -> Album Title
+  cover.png -> album Cover
+  vid.mp4 -> render album video
+  metadata.txt -> song metadata
+  desc.txt -> generate Youtube description with timestamps
+  global config for defaults eg. Artist, Genere, (Logo?), YT description
+- Only update as needed
+- cleanup
+- Render format presets eg. Flac, Wave, mp3, raw -> FFMPEG wrapper
+- Output Goals: render Tracks, Merge into single, render with video, generate Description, code?
+  - Mp3 for CD
+  - Wav for HQ Listening
+  - Amuse for publishing?
+  - Flac = wav alternative
+  - Full
+  - Video for Youtube
+- Publisher Helpers, eg YT API, (Uplaod Amuse -> Ask for API ^w^)? ->
+ex.
+#+begin_src
+PPublish $ [format_preset] -> folders Flac,Wav,mp3,amuse
+PPublish $ publish "Youtube" => render video, gen description, API calls
+PPublish $ publish "amuse" => render amuse preset, API calls
+#+end_src
+#+begin_src
+samplerate: 44000
+metadata: true
+cover: true
+folder_suffix: HQ
+ext: .wav
+merge
+channels: 2
+trim silence
+[a]->concat->filters...->out
+#+end_src
+
+* First start
+- Copy global Settings, analyze Env -> create State
+* CLI
+- Set options inside State
+- Execute Jobs
+* On Job
+- Diff with prev State
+- Send Changes to Job -> Job can weight changes to minimize work
+- Afer Job apply diff to Jobs State and safe in .ppub
+* .ppub
+- Stores all Settings of the Album, must be version safe
+- Stores "current" environment State as well as all "current" States of the Jobs
