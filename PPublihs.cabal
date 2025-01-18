@@ -25,9 +25,9 @@ source-repository head
 
 library
   exposed-modules:
-      Context
       Files
       Lib
+      Settings
       State
       Store
   other-modules:
@@ -38,9 +38,9 @@ library
       src
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
-      base >=4.7 && <5
+      aeson
+    , base >=4.7 && <5
     , bytestring
-    , cereal
     , containers
     , directory
     , exceptions
@@ -62,9 +62,9 @@ executable PPublihs-exe
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       PPublihs
+    , aeson
     , base >=4.7 && <5
     , bytestring
-    , cereal
     , containers
     , directory
     , exceptions
@@ -88,9 +88,9 @@ test-suite PPublihs-test
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       PPublihs
+    , aeson
     , base >=4.7 && <5
     , bytestring
-    , cereal
     , containers
     , directory
     , exceptions

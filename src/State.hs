@@ -11,35 +11,28 @@ import GHC.Generics ( Generic )
 import System.Directory ( getCurrentDirectory, listDirectory)
 import Files (File, FileType (..), loadFile, filterFiles, tryLoad, searchFile)
 import System.FilePath (takeFileName)
-import Data.Serialize (Serialize)
-import Context ( Context(trackDirs) )
 import Data.List (nub)
-import Data.Map (Map, fromList)
 import Control.Monad (msum)
-import Data.Maybe (maybeToList, catMaybes)
+import Data.Maybe (maybeToList)
 
-data StateData  where
-  SStr   :: String  -> StateData
-  SFile  :: File    -> StateData
-  SInt   :: Integer -> StateData
-  SFloat :: Float   -> StateData
-  deriving (Show, Generic)
+data LocalState where
+  LocalState :: {
+    tracks :: [File],
+    albumName:: String,
+    cover :: Maybe File,
+    video :: Maybe File,
+    description :: Maybe String,
+    metadata :: [(String, String)] -- TODO Hashmap
+           } -> LocalState
+  deriving (Generic, Show)
 
-instance Serialize StateData
-
-data State = State{tracks::[File], extra::Map String StateData} deriving (Generic, Show)
-instance Serialize State
 
 loadAny:: FileType -> String -> [FilePath] -> IO (Maybe File)
 loadAny t prefered alternatives = msum . map tryLoad $
   concat [(maybeToList . searchFile t prefered) alternatives, filterFiles t alternatives]
 
-tryOpt :: (a -> StateData) -> String -> Maybe a -> Maybe (String, StateData)
-tryOpt constr name (Just a) = Just (name, constr a)
-tryOpt _ _ Nothing = Nothing
-
-generateState:: Context -> IO State
-generateState ctx = do
+generateState:: Settings -> IO LocalState
+scanEnvironment ctx = do
   dir <- getCurrentDirectory
   dirFiles <- listDirectory dir
 
@@ -49,10 +42,4 @@ generateState ctx = do
   cover <- loadAny ImageFile "cover" dirFiles
   video <- loadAny VideoFile "video" dirFiles
   descr <- loadAny TextFile "desc" dirFiles
-  return $ State trks (fromList $ catMaybes
-                       [Just ("albumName", SStr $ takeFileName dir),
-                        tryFile "cover" cover,
-                        tryFile "video" video,
-                        tryFile "desc" descr
-                        ])
-    where tryFile = tryOpt SFile
+  return $ State trks (takeFileName dir) cover video descr []

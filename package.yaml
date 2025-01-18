@@ -28,7 +28,7 @@ dependencies:
 - split
 - process
 - hspec
-- cereal
+- aeson
 - directory
 - time
 - containers

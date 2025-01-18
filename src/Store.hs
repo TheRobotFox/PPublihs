@@ -4,7 +4,7 @@
 module Store where
 
 import Context (Context)
-import Data.Serialize (encode, decode, Serialize)
+import Data.Aeson (FromJSON, ToJSON, decode, encode)
 import GHC.IO (FilePath)
 import System.Directory
 import GHC.Generics
@@ -17,6 +17,9 @@ import State (State)
 
 data StoreException = ReadStoreFile String | StoreDeserialize String deriving (Show, Typeable)
 instance Exception StoreException
+
+instance ToJson (File,State,Context)
+instance FromJson (File,State,Context)
 
 type States = Map String State
 
