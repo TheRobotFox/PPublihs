@@ -8,12 +8,15 @@
 module State where
 
 import GHC.Generics ( Generic )
-import System.Directory ( getCurrentDirectory, listDirectory)
-import Files (File, FileType (..), loadFile, filterFiles, tryLoad, searchFile)
-import System.FilePath (takeFileName)
+import Files (File, filterFiles, FileType (AudioFile), loadFile, tryLoad)
+import Settings (Settings (trackDirs, fields), CorruptedConfig (CorruptedConfig))
+import System.Directory (getCurrentDirectory, listDirectory)
 import Data.List (nub)
-import Control.Monad (msum)
-import Data.Maybe (maybeToList)
+import Data.Map ((!), lookup, Map, toList)
+import Prelude hiding (lookup)
+import GHC.IO (throwIO)
+import Data.Aeson (eitherDecode, FromJSON, ToJSON)
+import qualified Data.ByteString.Lazy as BS
 
 data LocalState where
   LocalState :: {
@@ -21,22 +24,32 @@ data LocalState where
     albumName:: String,
     cover :: Maybe File,
     video :: Maybe File,
-    description :: Maybe String,
-    metadata :: [(String, String)] -- TODO Hashmap
+    description :: Maybe File,
+    metadata :: [(String,String)]
            } -> LocalState
   deriving (Generic, Show)
 
+instance FromJSON LocalState
+instance ToJSON LocalState
 
+generateState :: Settings -> IO LocalState
+generateState settings = do
+  dir <- getCurrentDirectory
+  dirFiles <- listDirectory dir
+  trackPaths <- nub . (filterFiles AudioFile . concat . (dirFiles:)) <$> mapM listDirectory (trackDirs settings)
+  trks <- mapM loadFile trackPaths
 
--- generateState:: Settings -> IO LocalState
--- scanEnvironment ctx = do
---   dir <- getCurrentDirectory
---   dirFiles <- listDirectory dir
+  cover <- tryLoad $ attr!"cover"
+  video <- tryLoad $ attr!"video"
+  desc  <- tryLoad $ attr!"desc"
 
---   trackPaths <- nub . (filterFiles AudioFile . concat . (dirFiles:)) <$> mapM listDirectory (trackDirs ctx)
---   trks <- mapM loadFile trackPaths
+  return $ LocalState trks (attr!"album") cover desc video
+    $ filter (not . (`elem` ["cover", "video", "desc"]) . fst) (toList attr)
+    where attr = fields settings
 
---   cover <- loadAny ImageFile "cover" dirFiles
---   video <- loadAny VideoFile "video" dirFiles
---   descr <- loadAny TextFile "desc" dirFiles
---   return $ State trks (takeFileName dir) cover video descr []
+loadStates :: FilePath -> IO (Map String LocalState)
+loadStates path = do
+  d <- BS.readFile path
+  case eitherDecode d of
+    Right states -> return states
+    Left e -> throwIO $ CorruptedConfig ("PPublihs cache is damaged, please fix or remove 'ppcache.json'! Error: " ++ e)

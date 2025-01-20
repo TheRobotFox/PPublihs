@@ -20,6 +20,7 @@ import Data.Time.Clock (UTCTime)
 import Control.Monad (liftM, liftM2)
 import Data.List (find)
 import Data.Char (toLower)
+import Data.Aeson (FromJSON, ToJSON)
 
 data ContentException = UnknownExtension | ReadAudioLength String | RunFFProbe String deriving (Show, Typeable)
 
@@ -28,6 +29,9 @@ instance Exception ContentException
 data FileType = TextFile | VideoFile | ImageFile | AudioFile deriving (Show,Eq)
 data Content = Text String | Video | Image | Audio (Maybe Integer) String Float deriving (Show,Eq)
 data File = File{path::FilePath, lastMod::UTCTime} deriving (Show, Generic)
+
+instance FromJSON File
+instance ToJSON File
 
 textExt = [".txt"]
 textExt :: [String]
