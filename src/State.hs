@@ -27,19 +27,16 @@ data LocalState where
   deriving (Generic, Show)
 
 
-loadAny:: FileType -> String -> [FilePath] -> IO (Maybe File)
-loadAny t prefered alternatives = msum . map tryLoad $
-  concat [(maybeToList . searchFile t prefered) alternatives, filterFiles t alternatives]
 
-generateState:: Settings -> IO LocalState
-scanEnvironment ctx = do
-  dir <- getCurrentDirectory
-  dirFiles <- listDirectory dir
+-- generateState:: Settings -> IO LocalState
+-- scanEnvironment ctx = do
+--   dir <- getCurrentDirectory
+--   dirFiles <- listDirectory dir
 
-  trackPaths <- nub . (filterFiles AudioFile . concat . (dirFiles:)) <$> mapM listDirectory (trackDirs ctx)
-  trks <- mapM loadFile trackPaths
+--   trackPaths <- nub . (filterFiles AudioFile . concat . (dirFiles:)) <$> mapM listDirectory (trackDirs ctx)
+--   trks <- mapM loadFile trackPaths
 
-  cover <- loadAny ImageFile "cover" dirFiles
-  video <- loadAny VideoFile "video" dirFiles
-  descr <- loadAny TextFile "desc" dirFiles
-  return $ State trks (takeFileName dir) cover video descr []
+--   cover <- loadAny ImageFile "cover" dirFiles
+--   video <- loadAny VideoFile "video" dirFiles
+--   descr <- loadAny TextFile "desc" dirFiles
+--   return $ State trks (takeFileName dir) cover video descr []

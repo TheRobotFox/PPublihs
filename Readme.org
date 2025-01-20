@@ -73,8 +73,10 @@ trim silence
 - Upload the Project to YT
 - Amuse API
 * Configuration
-- Multiple Layers take first possible
-- Maybes Conf -> higher Order type
+- Global Config for Jobs
+- Global defualt metadata
+- Metadata can be overwritten by local Config
+- Dialog for writing local/global config
 - Aeson Serialization
 * Environment Scan
 - Folder -> Album Name

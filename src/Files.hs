@@ -80,9 +80,9 @@ loadFile filepath = File filepath <$> getModificationTime filepath
 filterFiles :: FileType -> [FilePath] -> [FilePath]
 filterFiles ft = filter ((==Just ft) . fileType)
 
-searchFile :: FileType -> String -> [FilePath] -> Maybe FilePath
-searchFile t name = find (liftM2 (&&) ((==name) . map toLower . dropExtension . takeFileName)
-                       ((==Just t) . fileType))
+searchFile :: [FilePath] -> FileType -> String -> Maybe FilePath
+searchFile dir t name = find (liftM2 (&&) ((==name) . map toLower . dropExtension . takeFileName)
+                       ((==Just t) . fileType)) dir
 
 tryLoad :: FilePath -> IO (Maybe File)
 tryLoad path = (Just <$> loadFile path)
