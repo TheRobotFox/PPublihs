@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ScopedTypeVariables, BinaryLiterals #-}
 {-# OPTIONS_GHC -Wno-missing-export-lists #-}
 {-# OPTIONS_GHC -Wno-missing-signatures #-}
 {-# OPTIONS_GHC -XDeriveGeneric -XDefaultSignatures #-}
@@ -21,6 +21,11 @@ import Control.Monad (liftM, liftM2)
 import Data.List (find)
 import Data.Char (toLower)
 import Data.Aeson (FromJSON, ToJSON)
+import qualified Crypto.Hash.MD5 as MD5
+import qualified Data.ByteString as BS
+import Data.Bits
+import Data.ByteString (ByteString)
+import Data.Word
 
 data ContentException = UnknownExtension | ReadAudioLength String | RunFFProbe String deriving (Show, Typeable)
 
@@ -28,7 +33,7 @@ instance Exception ContentException
 
 data FileType = TextFile | VideoFile | ImageFile | AudioFile deriving (Show,Eq)
 data Content = Text String | Video | Image | Audio (Maybe Integer) String Float deriving (Show,Eq)
-data File = File{path::FilePath, lastMod::UTCTime} deriving (Show, Generic)
+data File = File{path::FilePath, lastMod::UTCTime, md5 :: String} deriving (Show, Generic)
 
 instance FromJSON File
 instance ToJSON File
@@ -77,16 +82,23 @@ loadContent AudioFile filepath = do
 loadContent VideoFile _ = return Video
 loadContent ImageFile _ = return Image
 
-loadFile::FilePath -> IO File
-loadFile filepath = File filepath <$> getModificationTime filepath
-
-
 filterFiles :: FileType -> [FilePath] -> [FilePath]
 filterFiles ft = filter ((==Just ft) . fileType)
 
 searchFile :: [FilePath] -> FileType -> String -> Maybe FilePath
 searchFile dir t name = find (liftM2 (&&) ((==name) . map toLower . dropExtension . takeFileName)
                        ((==Just t) . fileType)) dir
+
+md5Str :: ByteString -> String
+md5Str = concatMap f . BS.unpack
+  where
+    f = liftM2 (++) (digit . fromIntegral . (.&. 15)) (digit . fromIntegral . (`shiftR` 4))
+    digit i = [['a'..]!!i]
+
+loadFile::FilePath -> IO File
+loadFile filepath = do time <- getModificationTime filepath
+                       content <- BS.readFile filepath
+                       return $ File filepath time (md5Hex $ MD5.hash content)
 
 tryLoad :: FilePath -> IO (Maybe File)
 tryLoad path = (Just <$> loadFile path)

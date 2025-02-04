@@ -25,8 +25,8 @@ source-repository head
 
 library
   exposed-modules:
+      Diff
       Files
-      Lib
       Settings
       State
       Store
@@ -40,8 +40,10 @@ library
   build-depends:
       aeson
     , base >=4.7 && <5
+    , base64-bytestring
     , bytestring
     , containers
+    , cryptohash-md5
     , directory
     , exceptions
     , filepath
@@ -64,8 +66,10 @@ executable PPublihs-exe
       PPublihs
     , aeson
     , base >=4.7 && <5
+    , base64-bytestring
     , bytestring
     , containers
+    , cryptohash-md5
     , directory
     , exceptions
     , filepath
@@ -90,8 +94,10 @@ test-suite PPublihs-test
       PPublihs
     , aeson
     , base >=4.7 && <5
+    , base64-bytestring
     , bytestring
     , containers
+    , cryptohash-md5
     , directory
     , exceptions
     , filepath
