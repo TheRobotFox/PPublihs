@@ -87,4 +87,8 @@ trim silence
 - Add single Tracks or new Tracked Folders
 
 * Store
-- Version Safe in case of additional future Flags
+** KILL Version Safe in case of additional future Flags
+Aseson
+** TODO Order Overwrite
+- Store if order has been set for tracks
+- Needs to update in case of track deletion

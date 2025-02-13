@@ -25,7 +25,6 @@ import qualified Crypto.Hash.MD5 as MD5
 import qualified Data.ByteString as BS
 import Data.Bits
 import Data.ByteString (ByteString)
-import Data.Word
 
 data ContentException = UnknownExtension | ReadAudioLength String | RunFFProbe String deriving (Show, Typeable)
 
@@ -33,19 +32,19 @@ instance Exception ContentException
 
 data FileType = TextFile | VideoFile | ImageFile | AudioFile deriving (Show,Eq)
 data Content = Text String | Video | Image | Audio (Maybe Integer) String Float deriving (Show,Eq)
-data File = File{path::FilePath, lastMod::UTCTime, md5 :: String} deriving (Show, Generic)
+data File = File{path::FilePath, md5 :: String} deriving (Show, Generic)
 
 instance FromJSON File
 instance ToJSON File
 
-textExt = [".txt"]
-textExt :: [String]
-videoExt = [".mp4", ".avi", ".mpeg", ".mkv"]
-imageExt = [".png", ".jpg", ".tiff", ".jpeg", ".webp", ".bmp", ".gif"]
-audioExt = [".mp3", ".flac", ".wav", ".ogg"]
+getTypeExts :: FileType -> [String]
+getTypeExts TextFile = [".txt"]
+getTypeExts VideoFile = [".mp4", ".avi", ".mpeg", ".mkv"]
+getTypeExts ImageFile = [".png", ".jpg", ".tiff", ".jpeg", ".webp", ".bmp", ".gif"]
+getTypeExts AudioFile = [".mp3", ".flac", ".wav", ".ogg"]
 
-hasExt :: Foldable t => t String -> FilePath -> Bool
-hasExt exts = (`elem` exts) . takeExtension
+isType :: FileType -> FilePath -> Bool
+isType filetype = (`elem`  (getTypeExts filetype)) . takeExtension
 
 getAudioLength:: FilePath -> IO Float
 getAudioLength filepath = (do probe <- readProcess "ffprobe" ["-i", filepath, "-show_entries", "format=duration", "-v", "quiet", "-of", "csv=p=0"] []
@@ -54,6 +53,10 @@ getAudioLength filepath = (do probe <- readProcess "ffprobe" ["-i", filepath, "-
                                 Nothing -> throwIO $ ReadAudioLength probe)
                           `catch` \(e :: IOException) -> throwIO (RunFFProbe (show e))
 
+readTrackNum :: String -> Maybe Int
+readTrackNum name = let splits = splitOn ". " name in
+  if length splits > 1 then readMaybe . head $ splits
+                        else Nothing
 
 readAudioName::String -> Float -> Content
 readAudioName filename = let splits = splitOn ". " filename
@@ -62,13 +65,8 @@ readAudioName filename = let splits = splitOn ". " filename
                          Audio num (concat . tail $ splits) else Audio Nothing filename
 
 fileType:: FilePath -> Maybe FileType
-fileType filepath
- | ext `elem` textExt  = Just TextFile
- | ext `elem` audioExt = Just AudioFile
- | ext `elem` videoExt = Just VideoFile
- | ext `elem` imageExt = Just ImageFile
- | otherwise = Nothing
- where ext = takeExtension filepath
+fileType filepath = find (((takeExtension filepath) `elem`) . getTypeExts)
+        [TextFile, AudioFile, VideoFile, ImageFile]
 
 loadContent:: FileType -> FilePath -> IO Content
 loadContent TextFile filepath = do
@@ -96,9 +94,9 @@ md5Str = concatMap f . BS.unpack
     digit i = [['a'..]!!i]
 
 loadFile::FilePath -> IO File
-loadFile filepath = do time <- getModificationTime filepath
+loadFile filepath = do -- time <- getModificationTime filepath
                        content <- BS.readFile filepath
-                       return $ File filepath time (md5Hex $ MD5.hash content)
+                       return $ File filepath (md5Str $ MD5.hash content)
 
 tryLoad :: FilePath -> IO (Maybe File)
 tryLoad path = (Just <$> loadFile path)
