@@ -1,14 +1,10 @@
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE StandaloneDeriving #-}
 -- | PPublihs State
 
-module State where
+module State (LocalState(..)) where
 
 import GHC.Generics ( Generic )
-import Files (File, filterFiles, FileType (AudioFile), loadFile, tryLoad)
+import Files (File, filterFiles, FileType (AudioFile), loadFile, tryLoad, path)
 import Settings (Settings (trackDirs, fields), CorruptedConfig (CorruptedConfig))
 import System.Directory (getCurrentDirectory, listDirectory)
 import Data.List (nub)
@@ -17,16 +13,17 @@ import Prelude hiding (lookup)
 import GHC.IO (throwIO)
 import Data.Aeson (eitherDecode, FromJSON, ToJSON)
 import qualified Data.ByteString.Lazy as BS
+import Control.Exception
 
-data LocalState where
-  LocalState :: {
+data LocalState = LocalState {
     tracks :: [File],
+    trackOrder :: [FilePath],
     albumName:: String,
     cover :: Maybe File,
     video :: Maybe File,
     description :: Maybe File,
     metadata :: [(String,String)]
-           } -> LocalState
+           }
   deriving (Generic, Show)
 
 instance FromJSON LocalState
@@ -39,17 +36,19 @@ generateState settings = do
   trackPaths <- nub . (filterFiles AudioFile . concat . (dirFiles:)) <$> mapM listDirectory (trackDirs settings)
   trks <- mapM loadFile trackPaths
 
-  cover <- tryLoad $ attr!"cover"
-  video <- tryLoad $ attr!"video"
+  coverPath <- tryLoad $ attr!"cover"
+  videoPath <- tryLoad $ attr!"video"
   desc  <- tryLoad $ attr!"desc"
 
-  return $ LocalState trks (attr!"album") cover desc video
-    $ filter (not . (`elem` ["cover", "video", "desc"]) . fst) (toList attr)
+  return $ LocalState
+                trks
+                (map path trks)
+                (attr!"album") coverPath desc videoPath $ filter (not . (`elem` ["cover", "video", "desc"]) . fst) (toList attr)
     where attr = fields settings
 
 loadStates :: FilePath -> IO (Map String LocalState)
-loadStates path = do
-  d <- BS.readFile path
+loadStates filePath = do
+  d <- BS.readFile filePath
   case eitherDecode d of
     Right states -> return states
     Left e -> throwIO $ CorruptedConfig ("PPublihs cache is damaged, please fix or remove 'ppcache.json'! Error: " ++ e)

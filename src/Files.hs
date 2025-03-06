@@ -4,20 +4,18 @@
 {-# OPTIONS_GHC -XDeriveGeneric -XDefaultSignatures #-}
 -- | PPublihs File Definition
 
-module Files where
+module Files (File(..), FileType (..), loadFile, filterFiles, searchFile, tryLoad) where
 
 import System.FilePath (takeExtension, takeFileName)
-import Text.Read (readMaybe)
-import System.Process ( readProcess )
-import Data.Maybe ( isJust )
-import Data.List.Split (splitOn)
+-- import Text.Read (readMaybe)
+-- import System.Process ( readProcess )
+-- import Data.Maybe ( isJust )
+-- import Data.List.Split (splitOn)
 import System.FilePath.Posix (dropExtension)
-import Control.Exception (throwIO, catch, IOException, Exception)
+import Control.Exception (catch, IOException, Exception)
 import Data.Data (Typeable)
 import GHC.Generics (Generic)
-import System.Directory (getModificationTime, listDirectory)
-import Data.Time.Clock (UTCTime)
-import Control.Monad (liftM, liftM2)
+import Control.Monad (liftM2)
 import Data.List (find)
 import Data.Char (toLower)
 import Data.Aeson (FromJSON, ToJSON)
@@ -32,53 +30,53 @@ instance Exception ContentException
 
 data FileType = TextFile | VideoFile | ImageFile | AudioFile deriving (Show,Eq)
 data Content = Text String | Video | Image | Audio (Maybe Integer) String Float deriving (Show,Eq)
-data File = File{path::FilePath, md5 :: String} deriving (Show, Generic)
+data File = File{path::FilePath, md5 :: String} deriving (Show, Generic, Eq)
 
 instance FromJSON File
 instance ToJSON File
 
 getTypeExts :: FileType -> [String]
-getTypeExts TextFile = [".txt"]
 getTypeExts VideoFile = [".mp4", ".avi", ".mpeg", ".mkv"]
 getTypeExts ImageFile = [".png", ".jpg", ".tiff", ".jpeg", ".webp", ".bmp", ".gif"]
 getTypeExts AudioFile = [".mp3", ".flac", ".wav", ".ogg"]
+getTypeExts TextFile = [".txt"]
 
-isType :: FileType -> FilePath -> Bool
-isType filetype = (`elem`  (getTypeExts filetype)) . takeExtension
+-- isType :: FileType -> FilePath -> Bool
+-- isType filetype = (`elem`  (getTypeExts filetype)) . takeExtension
 
-getAudioLength:: FilePath -> IO Float
-getAudioLength filepath = (do probe <- readProcess "ffprobe" ["-i", filepath, "-show_entries", "format=duration", "-v", "quiet", "-of", "csv=p=0"] []
-                              case readMaybe probe of
-                                Just l -> return l
-                                Nothing -> throwIO $ ReadAudioLength probe)
-                          `catch` \(e :: IOException) -> throwIO (RunFFProbe (show e))
+-- getAudioLength:: FilePath -> IO Float
+-- getAudioLength filepath = (do probe <- readProcess "ffprobe" ["-i", filepath, "-show_entries", "format=duration", "-v", "quiet", "-of", "csv=p=0"] []
+--                               case readMaybe probe of
+--                                 Just l -> return l
+--                                 Nothing -> throwIO $ ReadAudioLength probe)
+--                           `catch` \(e :: IOException) -> throwIO (RunFFProbe (show e))
 
-readTrackNum :: String -> Maybe Int
-readTrackNum name = let splits = splitOn ". " name in
-  if length splits > 1 then readMaybe . head $ splits
-                        else Nothing
+-- readTrackNum :: String -> Maybe Int
+-- readTrackNum name = let splits = splitOn ". " name in
+--   if length splits > 1 then readMaybe . head $ splits
+--                         else Nothing
 
-readAudioName::String -> Float -> Content
-readAudioName filename = let splits = splitOn ". " filename
-                             num    = readMaybe . head $ splits in
-                if Prelude.length splits > 1 && isJust num then
-                         Audio num (concat . tail $ splits) else Audio Nothing filename
+-- readAudioName::String -> Float -> Content
+-- readAudioName filename = let splits = splitOn ". " filename
+--                              num    = readMaybe . head $ splits in
+--                 if Prelude.length splits > 1 && isJust num then
+--                          Audio num (concat . tail $ splits) else Audio Nothing filename
 
 fileType:: FilePath -> Maybe FileType
 fileType filepath = find (((takeExtension filepath) `elem`) . getTypeExts)
         [TextFile, AudioFile, VideoFile, ImageFile]
 
-loadContent:: FileType -> FilePath -> IO Content
-loadContent TextFile filepath = do
-  text <- readFile filepath
-  return $ Text text
+-- loadContent:: FileType -> FilePath -> IO Content
+-- loadContent TextFile filepath = do
+--   text <- readFile filepath
+--   return $ Text text
 
-loadContent AudioFile filepath = do
-  len <- getAudioLength filepath
-  return $ (readAudioName . takeFileName . dropExtension) filepath len
+-- loadContent AudioFile filepath = do
+--   len <- getAudioLength filepath
+--   return $ (readAudioName . takeFileName . dropExtension) filepath len
 
-loadContent VideoFile _ = return Video
-loadContent ImageFile _ = return Image
+-- loadContent VideoFile _ = return Video
+-- loadContent ImageFile _ = return Image
 
 filterFiles :: FileType -> [FilePath] -> [FilePath]
 filterFiles ft = filter ((==Just ft) . fileType)
@@ -99,5 +97,5 @@ loadFile filepath = do -- time <- getModificationTime filepath
                        return $ File filepath (md5Str $ MD5.hash content)
 
 tryLoad :: FilePath -> IO (Maybe File)
-tryLoad path = (Just <$> loadFile path)
+tryLoad filePath = (Just <$> loadFile filePath)
   `catch` \(_ :: IOException)->return Nothing

@@ -92,3 +92,9 @@ Aseson
 ** TODO Order Overwrite
 - Store if order has been set for tracks
 - Needs to update in case of track deletion
+* FFMpeg
+- Add custom FFMPEG scripts
+- Scripts are Modules
+- Folder Modules -> foreach file
+- concat Modules -> concat to single
+- Metadata
