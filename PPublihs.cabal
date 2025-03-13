@@ -25,13 +25,13 @@ source-repository head
 
 library
   exposed-modules:
+      Cli
       Diff
       FFMpeg
       Files
       Module
       Settings
       State
-      Store
   other-modules:
       Paths_PPublihs
   autogen-modules:

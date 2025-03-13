@@ -1,23 +1,22 @@
 {-# LANGUAGE DeriveGeneric #-}
 -- | PPublihs State
 
-module State (LocalState(..)) where
+module State (LocalState(..), emptyState) where
 
 import GHC.Generics ( Generic )
-import Files (File, filterFiles, FileType (AudioFile), loadFile, tryLoad, path)
+import Files (File, filterFiles, FileType (AudioFile), loadFile, tryLoad, path, TrackName(..))
 import Settings (Settings (trackDirs, fields), CorruptedConfig (CorruptedConfig))
 import System.Directory (getCurrentDirectory, listDirectory)
 import Data.List (nub)
 import Data.Map ((!), Map, toList)
 import Prelude hiding (lookup)
-import GHC.IO (throwIO)
 import Data.Aeson (eitherDecode, FromJSON, ToJSON)
 import qualified Data.ByteString.Lazy as BS
 import Control.Exception
 
 data LocalState = LocalState {
     tracks :: [File],
-    trackOrder :: [FilePath],
+    trackOrder :: [TrackName],
     albumName:: String,
     cover :: Maybe File,
     video :: Maybe File,
@@ -28,6 +27,9 @@ data LocalState = LocalState {
 
 instance FromJSON LocalState
 instance ToJSON LocalState
+
+emptyState :: LocalState
+emptyState = LocalState [] [] "" Nothing Nothing Nothing []
 
 generateState :: Settings -> IO LocalState
 generateState settings = do
@@ -42,12 +44,12 @@ generateState settings = do
 
   return $ LocalState
                 trks
-                (map path trks)
+                (map (TrackName . path) trks)
                 (attr!"album") coverPath desc videoPath $ filter (not . (`elem` ["cover", "video", "desc"]) . fst) (toList attr)
     where attr = fields settings
 
-loadStates :: FilePath -> IO (Map String LocalState)
-loadStates filePath = do
+loadState :: FilePath -> IO LocalState
+loadState filePath = do
   d <- BS.readFile filePath
   case eitherDecode d of
     Right states -> return states

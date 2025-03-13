@@ -1,9 +1,9 @@
 -- | Diff States
 
 
-module Diff (getEvents) where
+module Diff (getEvents, Event (..), TrackEvent (..)) where
 import State (LocalState (tracks, albumName, description, trackOrder), cover, video)
-import Files (File (..))
+import Files (File (..), TrackName (..))
 import Data.List (find, elemIndex)
 import Control.Monad (liftM2)
 import Data.Function (on)
@@ -13,8 +13,8 @@ import Data.Maybe (catMaybes, mapMaybe)
 -- Modules get current State + Events (from diffing with last State)
 -- After events have been applied
 
-data TrackEvent = Changed | New | Removed | RenameFrom FilePath | ReorderedFrom Int deriving Show;
-data Event = Track FilePath TrackEvent
+data TrackEvent = Changed | New | Removed | RenameFrom TrackName | Reordered deriving Show;
+data Event = Track TrackName TrackEvent
            | AlbumNameChanged
            | CoverChanged
            | DescriptionChanged
@@ -24,28 +24,28 @@ data Event = Track FilePath TrackEvent
 
 matchTrack :: [File] -> File -> Maybe File
 matchTrack trackList track = do
-  msum $ map matchBy [path,md5]
+  msum $ [matchBy path, matchBy md5]
         where matchBy fn = find (on (==) fn track) trackList
 
 trackEvent :: File -> File -> TrackEvent
 trackEvent old new =
-        if on (==) path old new then Changed else RenameFrom $ path new
+        if on (==) path old new then Changed else RenameFrom . TrackName . path $ new
 
-tracksEvents :: [File] -> [File] -> [(FilePath, TrackEvent)]
-tracksEvents [] added = map (flip (,) New . path) added
-tracksEvents rmd [] = map (flip (,) Removed. path) rmd
+tracksEvents :: [File] -> [File] -> [(TrackName, TrackEvent)]
+tracksEvents [] added = map (flip (,) New . TrackName . path) added
+tracksEvents rmd [] = map (flip (,) Removed . TrackName . path) rmd
 tracksEvents (old:os) new =
   case matchTrack new old of
-        Just track -> liftM2 (,) path (trackEvent old) track:tracksEvents os (filter (== track) new)
-        Nothing -> (path old, Removed):tracksEvents os new
+        Just track -> liftM2 (,) (TrackName . path) (trackEvent old) track:tracksEvents os (filter (== track) new)
+        Nothing -> (TrackName $ path old, Removed):tracksEvents os new
 
-trackListReorder :: [FilePath] -> [FilePath] -> [Event]
+trackListReorder :: [TrackName] -> [TrackName] -> [Event]
 trackListReorder old new = mapMaybe changed $ zip [1..] new
   where
-    changed :: (Int, FilePath) -> Maybe Event
+    changed :: (Int, TrackName) -> Maybe Event
     changed (idx_now, name) = do
           prev <- name `elemIndex` old
-          if prev/=idx_now then return $ Track name (ReorderedFrom prev)
+          if prev/=idx_now then return $ Track name Reordered
             else Nothing
 
 

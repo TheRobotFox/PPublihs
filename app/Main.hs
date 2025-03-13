@@ -1,7 +1,7 @@
 module Main (main) where
 
-import Lib
+import Cli
 
 
 main :: IO ()
-main = someFunc
+main = cli

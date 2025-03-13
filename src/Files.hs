@@ -4,9 +4,9 @@
 {-# OPTIONS_GHC -XDeriveGeneric -XDefaultSignatures #-}
 -- | PPublihs File Definition
 
-module Files (File(..), FileType (..), loadFile, filterFiles, searchFile, tryLoad) where
+module Files (File(..), FileType (..), loadFile, filterFiles, searchFile, tryLoad, readMD5, moveJunk, TrackName(..), Checksum(..)) where
 
-import System.FilePath (takeExtension, takeFileName)
+import System.FilePath (takeExtension, takeFileName, combine)
 -- import Text.Read (readMaybe)
 -- import System.Process ( readProcess )
 -- import Data.Maybe ( isJust )
@@ -23,14 +23,25 @@ import qualified Crypto.Hash.MD5 as MD5
 import qualified Data.ByteString as BS
 import Data.Bits
 import Data.ByteString (ByteString)
+import System.Directory (createDirectoryIfMissing, renameFile)
 
 data ContentException = UnknownExtension | ReadAudioLength String | RunFFProbe String deriving (Show, Typeable)
 
 instance Exception ContentException
 
+
+newtype TrackName = TrackName String deriving (Show, Eq, Generic, Ord)
+newtype Checksum = Checksum String  deriving (Show, Eq, Generic)
+
 data FileType = TextFile | VideoFile | ImageFile | AudioFile deriving (Show,Eq)
 data Content = Text String | Video | Image | Audio (Maybe Integer) String Float deriving (Show,Eq)
-data File = File{path::FilePath, md5 :: String} deriving (Show, Generic, Eq)
+data File = File{path::FilePath, md5 :: Checksum} deriving (Show, Generic, Eq)
+
+instance FromJSON Checksum
+instance ToJSON Checksum
+
+instance FromJSON TrackName
+instance ToJSON TrackName
 
 instance FromJSON File
 instance ToJSON File
@@ -85,17 +96,23 @@ searchFile :: [FilePath] -> FileType -> String -> Maybe FilePath
 searchFile dir t name = find (liftM2 (&&) ((==name) . map toLower . dropExtension . takeFileName)
                        ((==Just t) . fileType)) dir
 
-md5Str :: ByteString -> String
-md5Str = concatMap f . BS.unpack
+md5Str :: ByteString -> Checksum
+md5Str = Checksum . concatMap f . BS.unpack
   where
     f = liftM2 (++) (digit . fromIntegral . (.&. 15)) (digit . fromIntegral . (`shiftR` 4))
     digit i = [['a'..]!!i]
 
-loadFile::FilePath -> IO File
-loadFile filepath = do -- time <- getModificationTime filepath
+readMD5::FilePath -> IO Checksum
+readMD5 filepath = do -- time <- getModificationTime filepath
                        content <- BS.readFile filepath
-                       return $ File filepath (md5Str $ MD5.hash content)
+                       return (md5Str $ MD5.hash content)
+
+loadFile::FilePath -> IO File
+loadFile filepath = File filepath <$> readMD5 filepath
 
 tryLoad :: FilePath -> IO (Maybe File)
 tryLoad filePath = (Just <$> loadFile filePath)
   `catch` \(_ :: IOException)->return Nothing
+
+moveJunk :: FilePath -> IO ()
+moveJunk file = createDirectoryIfMissing True "junk" >> renameFile file (combine "junk" file)

@@ -99,7 +99,7 @@ dialogFields :: [(String, String)]
 dialogFields =
   [("artist"     , "Artist Name"                 ),
    ("genre"      , "Common Genre"                ),
-   ("album"       , "Album Name"                 ),
+   ("album"      , "Album Name"                  ),
    ("description", "YouTube Description Textfile"),
    ("cover"      , "Cover Image"                 ),
    ("video"      , "Album Video"                 )]
