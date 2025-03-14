@@ -17,6 +17,7 @@ import GHC.IO (throwIO)
 import Prelude hiding (lookup)
 import Control.Exception (Exception)
 import GHC.Generics (Generic)
+import System.IO (hFlush, stdout)
 
 type Fields = Map String String
 data Settings = Settings{trackDirs :: [FilePath], fields :: Fields} deriving (Show, Generic)
@@ -59,6 +60,7 @@ getMakeSettings file dialog =
 askAll :: Dialog
 askAll answered (name, desc) =
   do putStr $ desc ++ " (default: "++ show (lookup name answered) ++ ")" ++ ": "
+     hFlush stdout
      answer <- getLine
      putStrLn $ "."
      return $ if null answer then Nothing else Just (name, answer)
@@ -87,7 +89,6 @@ filterPair l = catMaybes <$> (sequence . map f) l
                 Nothing -> return Nothing
 
 globalDialog :: FilePath -> IO Fields
-
 globalDialog file = settingsDialog
                 ("PPublihs Setup Dialog!\n\
                 \ Please enter default Global values now, you can change all settings later\n\

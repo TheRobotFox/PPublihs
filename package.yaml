@@ -33,6 +33,7 @@ dependencies:
 - directory
 - time
 - containers
+- transformers
 
 ghc-options:
 - -Wall

@@ -2,13 +2,13 @@
 -- | Modules
 
 module Module where
-import Files ( Checksum, TrackName(..), readMD5, moveJunk )
+import Files ( Checksum, TrackName(..), readMD5, moveJunk, File )
 import FFMpeg (RenderSettings (..))
 import Settings (configDir)
 import System.Directory (listDirectory, doesFileExist, renameFile)
 import Data.Aeson (eitherDecode, FromJSON, ToJSON)
 import GHC.Generics (Generic)
-import State (LocalState (..), emptyState)
+import State (LocalState (..))
 import Diff (Event (..), TrackEvent (..), getEvents)
 import Data.Map ( Map, toList, fromList, insert, findWithDefault )
 import Prelude hiding (lookup)
@@ -16,11 +16,11 @@ import System.FilePath (combine, (</>), replaceExtension)
 import qualified Data.ByteString.Lazy as BS
 import Control.Exception (throwIO, Exception)
 import Data.List (elemIndices)
-import Control.Monad (msum, filterM, liftM2)
-import Data.Data
+import Control.Monad (filterM, liftM2)
+import Data.Data ( Typeable )
 import Data.Maybe (fromMaybe)
 
-data ModuleState = ModuleState{cacheChecksums :: [(TrackName, Checksum)], config :: RenderSettings, current :: LocalState}
+data ModuleState = ModuleState{rendered :: [File], config :: RenderSettings, current :: LocalState}
   deriving Generic
 
 instance FromJSON ModuleState
@@ -66,7 +66,7 @@ readConfig name = do
 
 cleanState :: String -> IO ModuleState
 cleanState name = do cfg <- readConfig name
-                     return $ ModuleState [] cfg emptyState
+                     return $ ModuleState [] cfg (LocalState [] [] "" Nothing Nothing Nothing [])
 
 loadFromCache :: String -> IO ModuleState
 loadFromCache name =

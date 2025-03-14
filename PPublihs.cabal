@@ -53,6 +53,7 @@ library
     , process
     , split
     , time
+    , transformers
   default-language: Haskell2010
 
 executable PPublihs-exe
@@ -79,6 +80,7 @@ executable PPublihs-exe
     , process
     , split
     , time
+    , transformers
   default-language: Haskell2010
 
 test-suite PPublihs-test
@@ -107,4 +109,5 @@ test-suite PPublihs-test
     , process
     , split
     , time
+    , transformers
   default-language: Haskell2010
