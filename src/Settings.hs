@@ -3,39 +3,36 @@
 {-# LANGUAGE FlexibleInstances #-}
 
 -- | PPublihs Settings
-module Settings where
+module Settings (Settings(..), Fields, Field(..), getSettings, askAll, askNew, askOverwrite) where
 import Files (searchFile, FileType(..), loadOrCreate)
-import Data.Map (Map, member, fromList, empty, union, lookup, (!), toList)
+import Data.Map (Map, member, fromList, empty, union, lookup, (!))
 import System.FilePath (combine, takeFileName)
 import Data.Maybe (catMaybes)
 import Prelude hiding (lookup)
-import Control.Exception (Exception)
 import GHC.Generics (Generic)
 import System.IO (hFlush, stdout)
 import Data.Aeson (ToJSONKey, FromJSONKey, ToJSON, FromJSON)
 import System.Directory (getCurrentDirectory, listDirectory, getXdgDirectory, XdgDirectory (..))
 
+-- Definitions
+
 data Field = AlbumName | Cover | Video | Description | Attr String
            deriving (Generic, Show, Eq, Ord)
+type Fields a = Map Field a
+
+data Settings = Settings{trackDirs :: [FilePath], fields :: Fields String} deriving (Show, Generic)
+
 
 instance ToJSONKey Field
 instance FromJSONKey Field
 instance ToJSON Field
 instance FromJSON Field
-
-type Fields = Map Field String
-
-data Settings = Settings{trackDirs :: [FilePath], fields :: [(Field, String)]} deriving (Show, Generic)
 instance ToJSON Settings
 instance FromJSON Settings
 
-newtype CorruptedConfig = CorruptedConfig String deriving (Show)
-instance Exception CorruptedConfig
 
 
-type Dialog = Fields -> (Field, String) -> IO (Maybe (Field, String))
-
-
+-- Fields and Defaults
 
 dialogFields :: [(Field, String)]
 dialogFields =
@@ -46,8 +43,7 @@ dialogFields =
    (Cover        , "Cover Image"                 ),
    (Video        , "Album Video"                 )]
 
-
-findDefaults :: IO Fields
+findDefaults :: IO (Fields String)
 findDefaults = fmap (fromList . catMaybes) . sequence $
                 [def Cover       $ findFile ImageFile "cover"     ,
                  def Video       $ findFile VideoFile "video"     ,
@@ -56,12 +52,14 @@ findDefaults = fmap (fromList . catMaybes) . sequence $
   where
     def field dflt = fmap (fmap ((,) field)) dflt
 
-findFile:: FileType -> String -> IO (Maybe FilePath)
-findFile t n = getCurrentDirectory >>= listDirectory >>= return . searchFile t n
 
-settingsDialog :: ((Field, String) -> IO (Maybe (Field, String))) -> [(Field, String)] -> IO Fields
-settingsDialog ask questions =
-  sequence (map ask questions) >>= return . fromList . catMaybes
+configDir :: IO FilePath
+configDir = getXdgDirectory XdgConfig "ppublihs"
+
+
+-- Asking Callbacks
+
+type Dialog = Fields String -> (Field, String) -> IO (Maybe (Field, String))
 
 askAll :: Dialog
 askAll answered (name, desc) =
@@ -82,8 +80,15 @@ askNew answered (name, desc) =
         else askAll answered (name, desc)
 
 
-configDir :: IO FilePath
-configDir = getXdgDirectory XdgConfig "ppublihs"
+
+-- Implementation
+
+findFile:: FileType -> String -> IO (Maybe FilePath)
+findFile t n = getCurrentDirectory >>= listDirectory >>= return . searchFile t n
+
+settingsDialog :: ((Field, String) -> IO (Maybe (Field, String))) -> [(Field, String)] -> IO (Fields String)
+settingsDialog ask questions =
+  sequence (map ask questions) >>= return . fromList . catMaybes
 
 getSettings :: Dialog -> IO Settings
 getSettings askFor =
@@ -97,4 +102,4 @@ getSettings askFor =
      let defaults = union global autofields
      local       <- loadOrCreate "ppconf.json" (putStrLn "Configure Album!\n" >>
                                                 settingsDialog (askFor defaults) dialogFields)
-     return       $ Settings ["."] (toList . union local $ defaults)
+     return       $ Settings ["."] (union local defaults)

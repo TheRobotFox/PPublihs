@@ -5,20 +5,22 @@
 module State (LocalState(..), getState) where
 
 import GHC.Generics ( Generic )
-import Files (File, filterFiles, FileType (AudioFile), loadFile, path, TrackName(..), Checksum)
-import System.Directory (getCurrentDirectory, listDirectory)
+import System.Directory (listDirectory)
 import Data.List (nub)
-import Data.Map ((!), toList, Map)
+import Data.Map ((!), toList)
 import Prelude hiding (lookup)
 import Data.Aeson (eitherDecode, FromJSON, ToJSON)
 import qualified Data.ByteString.Lazy as BS
 import Control.Exception
 import Data.Map (lookup)
-import Settings (Settings, Fields)
+import Settings (Settings (..), Fields, Field (..))
+import Files (TrackName (..), Checksum, filterFiles, FileType (..), loadFile, readMD5)
+import Data.Maybe (catMaybes)
+import Control.Monad.Trans.Writer (WriterT(runWriterT))
 
 data LocalState = LocalState {
-  tracks :: [TrackName],
-  metadata :: Fields
+  tracks :: [(TrackName, Checksum)],
+  metadata :: Fields Checksum
                              } deriving (Show, Generic)
 
 instance FromJSON LocalState
@@ -31,21 +33,21 @@ promoteIO Nothing _ = return Nothing
 
 generateState :: Settings -> IO LocalState
 generateState settings = do
-  dir <- getCurrentDirectory
-  dirFiles <- listDirectory dir
-  trackPaths <- nub . (filterFiles AudioFile . concat . (dirFiles:)) <$> mapM listDirectory (trackDirs settings)
-  trks <- mapM loadFile trackPaths
+  trackPaths <- fmap (nub . filterFiles AudioFile . concat) $ mapM listDirectory (trackDirs settings)
+  trks <- runWriterT . fmap catMaybes . mapM loadFile $ trackPaths
+  mapM_ putStrLn . snd $ trks
 
-  coverPath <- loadOpt "cover"
-  videoPath <- loadOpt "video"
-  desc  <- loadOpt "desc"
+  coverPath <- loadOpt Cover
+  videoPath <- loadOpt Video
+  desc  <- loadOpt Description
+  optFiles <- fmap loadOpt [Cover, Video, Description]
 
   return $ LocalState
                 trks
                 (map (TrackName . path) trks)
                 (attr!"album") coverPath desc videoPath $ filter (not . (`elem` ["cover", "video", "desc"]) . fst) (toList attr)
     where attr = fields settings
-          loadOpt field = promoteIO (lookup field attr) tryLoad
+          loadOpt field = promoteIO (lookup field attr) readMD5
 
 loadState :: FilePath -> IO LocalState
 loadState filePath = do

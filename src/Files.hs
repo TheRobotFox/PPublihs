@@ -13,7 +13,7 @@ import System.FilePath (takeExtension, takeFileName, combine, takeDirectory)
 -- import Data.Maybe ( isJust )
 -- import Data.List.Split (splitOn)
 import System.FilePath.Posix (dropExtension)
-import Control.Exception (catch, IOException, Exception)
+import Control.Exception (IOException, Exception)
 import Data.Data (Typeable)
 import GHC.Generics (Generic)
 import Control.Monad (liftM2)
@@ -25,6 +25,10 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import Data.Bits
 import System.Directory (createDirectoryIfMissing, renameFile)
+import Control.Monad.Trans.Writer
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Catch (catch)
+import Data.Maybe (catMaybes)
 
 data ContentException = UnknownExtension | ReadAudioLength String | RunFFProbe String deriving (Show, Typeable)
 
@@ -108,9 +112,13 @@ readMD5 filepath = do -- time <- getModificationTime filepath
                        content <- BS.readFile filepath
                        return (md5Str . MD5.hash $ content)
 
-loadFile :: FilePath -> IO (Maybe File)
-loadFile filePath = (fmap (Just . File filePath) . readMD5 $ filePath)
-  `catch` \(_ :: IOException)->return Nothing
+loadFile :: FilePath -> WriterT [String] IO (Maybe File)
+loadFile filePath = (liftIO . fmap (Just . File filePath) . readMD5 $ filePath)
+  `catch` \(e :: IOException)-> do
+        tell ["Failed to Load " ++ filePath ++ ": " ++ show e]
+        liftIO $ return Nothing
+
+
 
 moveJunk :: FilePath -> IO ()
 moveJunk file = createDirectoryIfMissing True "junk" >> renameFile file (combine "junk" file)
@@ -128,4 +136,4 @@ loadOrCreate file insert = (do
  case eitherDecode load of
    Right r -> return r
    Left err -> (putStrLn $ "File '"++file++"' is corrupted: "++err) >> putStrLn "Regenerating..." >> createFile file insert)
-  `catch` (\(e :: IOException)->createFile file insert)
+  `catch` (\(e :: IOException)->putStrLn ("Failed to open '"++file++"': " ++ show e) >> createFile file insert)
