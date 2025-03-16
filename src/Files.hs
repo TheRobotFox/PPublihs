@@ -2,11 +2,12 @@
 {-# OPTIONS_GHC -Wno-missing-export-lists #-}
 {-# OPTIONS_GHC -Wno-missing-signatures #-}
 {-# OPTIONS_GHC -XDeriveGeneric -XDefaultSignatures #-}
+{-# OPTIONS_GHC -Wno-unused-do-bind #-}
 -- | PPublihs File Definition
 
-module Files (File(..), FileType (..), loadFile, filterFiles, searchFile, tryLoad, readMD5, moveJunk, TrackName(..), Checksum(..)) where
+module Files (File(..), FileType (..), loadFile, filterFiles, searchFile, loadOrCreate, readMD5, moveJunk, TrackName(..), Checksum(..)) where
 
-import System.FilePath (takeExtension, takeFileName, combine)
+import System.FilePath (takeExtension, takeFileName, combine, takeDirectory)
 -- import Text.Read (readMaybe)
 -- import System.Process ( readProcess )
 -- import Data.Maybe ( isJust )
@@ -18,11 +19,11 @@ import GHC.Generics (Generic)
 import Control.Monad (liftM2)
 import Data.List (find)
 import Data.Char (toLower)
-import Data.Aeson (FromJSON, ToJSON)
+import Data.Aeson (FromJSON, ToJSON, eitherDecode, encode)
 import qualified Crypto.Hash.MD5 as MD5
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BSL
 import Data.Bits
-import Data.ByteString (ByteString)
 import System.Directory (createDirectoryIfMissing, renameFile)
 
 data ContentException = UnknownExtension | ReadAudioLength String | RunFFProbe String deriving (Show, Typeable)
@@ -92,11 +93,11 @@ fileType filepath = find (((takeExtension filepath) `elem`) . getTypeExts)
 filterFiles :: FileType -> [FilePath] -> [FilePath]
 filterFiles ft = filter ((==Just ft) . fileType)
 
-searchFile :: [FilePath] -> FileType -> String -> Maybe FilePath
-searchFile dir t name = find (liftM2 (&&) ((==name) . map toLower . dropExtension . takeFileName)
-                       ((==Just t) . fileType)) dir
+searchFile :: FileType -> String -> [FilePath] -> Maybe FilePath
+searchFile t name = find (liftM2 (&&) ((==name) . map toLower . dropExtension . takeFileName)
+                       ((==Just t) . fileType))
 
-md5Str :: ByteString -> Checksum
+md5Str :: BS.ByteString -> Checksum
 md5Str = Checksum . concatMap f . BS.unpack
   where
     f = liftM2 (++) (digit . fromIntegral . (.&. 15)) (digit . fromIntegral . (`shiftR` 4))
@@ -105,14 +106,26 @@ md5Str = Checksum . concatMap f . BS.unpack
 readMD5::FilePath -> IO Checksum
 readMD5 filepath = do -- time <- getModificationTime filepath
                        content <- BS.readFile filepath
-                       return (md5Str $ MD5.hash content)
+                       return (md5Str . MD5.hash $ content)
 
-loadFile::FilePath -> IO File
-loadFile filepath = File filepath <$> readMD5 filepath
-
-tryLoad :: FilePath -> IO (Maybe File)
-tryLoad filePath = (Just <$> loadFile filePath)
+loadFile :: FilePath -> IO (Maybe File)
+loadFile filePath = (fmap (Just . File filePath) . readMD5 $ filePath)
   `catch` \(_ :: IOException)->return Nothing
 
 moveJunk :: FilePath -> IO ()
 moveJunk file = createDirectoryIfMissing True "junk" >> renameFile file (combine "junk" file)
+
+createFile :: ToJSON e => FilePath -> IO e -> IO e
+createFile file insert = do
+  createDirectoryIfMissing True (takeDirectory file)
+  res <- insert
+  BSL.writeFile file . encode $ res
+  return res
+
+loadOrCreate :: (ToJSON e, FromJSON e) => FilePath -> IO e -> IO e
+loadOrCreate file insert = (do
+ load <- BSL.readFile file
+ case eitherDecode load of
+   Right r -> return r
+   Left err -> (putStrLn $ "File '"++file++"' is corrupted: "++err) >> putStrLn "Regenerating..." >> createFile file insert)
+  `catch` (\(e :: IOException)->createFile file insert)

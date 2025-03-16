@@ -1,68 +1,74 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# OPTIONS_GHC -Wno-orphans #-}
 
 -- | PPublihs Settings
 module Settings where
-import Files
-import Data.Map (Map, member, fromList, empty, union, lookup, (!))
-import System.Directory (getXdgDirectory, XdgDirectory (XdgConfig), doesFileExist, createDirectoryIfMissing, getCurrentDirectory, listDirectory)
-import Data.Aeson (encode, eitherDecode, ToJSON, FromJSON)
-import System.FilePath (takeDirectory, combine, takeFileName)
-import qualified Data.ByteString.Lazy as BS
+import Files (searchFile, FileType(..), loadOrCreate)
+import Data.Map (Map, member, fromList, empty, union, lookup, (!), toList)
+import System.FilePath (combine, takeFileName)
 import Data.Maybe (catMaybes)
-import GHC.IO (throwIO)
 import Prelude hiding (lookup)
 import Control.Exception (Exception)
 import GHC.Generics (Generic)
 import System.IO (hFlush, stdout)
+import Data.Aeson (ToJSONKey, FromJSONKey, ToJSON, FromJSON)
+import System.Directory (getCurrentDirectory, listDirectory, getXdgDirectory, XdgDirectory (..))
 
-type Fields = Map String String
-data Settings = Settings{trackDirs :: [FilePath], fields :: Fields} deriving (Show, Generic)
-type Dialog = Fields -> (String, String) -> IO (Maybe (String, String))
+data Field = AlbumName | Cover | Video | Description | Attr String
+           deriving (Generic, Show, Eq, Ord)
 
-newtype CorruptedConfig = CorruptedConfig String deriving (Show)
+instance ToJSONKey Field
+instance FromJSONKey Field
+instance ToJSON Field
+instance FromJSON Field
 
-instance Exception CorruptedConfig
+type Fields = Map Field String
 
+data Settings = Settings{trackDirs :: [FilePath], fields :: [(Field, String)]} deriving (Show, Generic)
 instance ToJSON Settings
 instance FromJSON Settings
 
+newtype CorruptedConfig = CorruptedConfig String deriving (Show)
+instance Exception CorruptedConfig
+
+
+type Dialog = Fields -> (Field, String) -> IO (Maybe (Field, String))
+
+
+
+dialogFields :: [(Field, String)]
+dialogFields =
+  [(Attr "artist", "Artist Name"                 ),
+   (Attr "genre" , "Common Genre"                ),
+   (AlbumName    , "Album Name"                  ),
+   (Description  , "YouTube Description Textfile"),
+   (Cover        , "Cover Image"                 ),
+   (Video        , "Album Video"                 )]
+
+
+findDefaults :: IO Fields
+findDefaults = fmap (fromList . catMaybes) . sequence $
+                [def Cover       $ findFile ImageFile "cover"     ,
+                 def Video       $ findFile VideoFile "video"     ,
+                 def Description $ findFile TextFile "description",
+                 def AlbumName   $ Just <$> takeFileName <$> getCurrentDirectory]
+  where
+    def field dflt = fmap (fmap ((,) field)) dflt
+
 findFile:: FileType -> String -> IO (Maybe FilePath)
-findFile t n = do dir   <- getCurrentDirectory
-                  files <- listDirectory dir
-                  return $ searchFile files t n
+findFile t n = getCurrentDirectory >>= listDirectory >>= return . searchFile t n
 
-settingsDialog :: String -> ((String, String) -> IO (Maybe (String, String)))
-                -> [(String, String)] -> IO (Fields)
-settingsDialog msg ask questions =
-  do putStrLn msg
-     res <- sequence $ map ask questions
-     return . fromList $ catMaybes res
-
-getMakeSettings :: FilePath -> IO Fields -> IO Fields
-getMakeSettings file dialog =
-  do exists <- doesFileExist file
-     if exists then
-       do json <- BS.readFile file
-          case eitherDecode json of
-            Right settings -> return settings
-            Left e -> throwIO $ CorruptedConfig $ "Failed to Read " ++ file ++ ": " ++ e
-     else
-        -- run Dialog
-        do createDirectoryIfMissing True (takeDirectory file)
-           content <- dialog
-           BS.writeFile file $ encode content
-           return content
+settingsDialog :: ((Field, String) -> IO (Maybe (Field, String))) -> [(Field, String)] -> IO Fields
+settingsDialog ask questions =
+  sequence (map ask questions) >>= return . fromList . catMaybes
 
 askAll :: Dialog
 askAll answered (name, desc) =
   do putStr $ desc ++ " (default: "++ show (lookup name answered) ++ ")" ++ ": "
      hFlush stdout
      answer <- getLine
-     putStrLn $ "."
+     putStrLn $ "Ok!"
      return $ if null answer then Nothing else Just (name, answer)
 
 askOverwrite :: Dialog
@@ -79,45 +85,16 @@ askNew answered (name, desc) =
 configDir :: IO FilePath
 configDir = getXdgDirectory XdgConfig "ppublihs"
 
-filterPair :: [(String, IO (Maybe String))] -> IO [(String, String)]
-filterPair l = catMaybes <$> (sequence . map f) l
-  where
-        f (a, b) = do
-          p <- b
-          case p of
-                Just e -> return $ Just (a,e)
-                Nothing -> return Nothing
-
-globalDialog :: FilePath -> IO Fields
-globalDialog file = settingsDialog
-                ("PPublihs Setup Dialog!\n\
-                \ Please enter default Global values now, you can change all settings later\n\
-                \ in " ++ show file ++ " or via settings command\n\
-                \Select Default by leaving empty\n") (askAll empty) (take 2 dialogFields)
-
-
-dialogFields :: [(String, String)]
-dialogFields =
-  [("artist"     , "Artist Name"                 ),
-   ("genre"      , "Common Genre"                ),
-   ("album"      , "Album Name"                  ),
-   ("description", "YouTube Description Textfile"),
-   ("cover"      , "Cover Image"                 ),
-   ("video"      , "Album Video"                 )]
-
-findDefaults :: IO Fields
-findDefaults = fromList <$>
-     filterPair [("cover", findFile ImageFile "cover")     ,
-                 ("video", findFile VideoFile "video")     ,
-                 ("desc" , findFile TextFile "description"),
-                 ("album" , Just <$> takeFileName <$> getCurrentDirectory )]
-
 getSettings :: Dialog -> IO Settings
 getSettings askFor =
-  do configFile <- (flip combine) "defaults.json" <$> configDir
-     global     <- getMakeSettings configFile (globalDialog configFile)
-     autofields <- findDefaults
+  do configFile  <- (flip combine) "defaults.json" <$> configDir
+     global      <- loadOrCreate configFile (putStrLn
+                                             ("PPublihs Setup Dialog!\n\
+               \Please enter default Global values now, you can change all settings later\n\
+               \in " ++ show configFile ++ " or via settings command\n\
+               \Select Default by leaving empty\n") >> settingsDialog (askAll empty) (take 2 dialogFields))
+     autofields  <- findDefaults
      let defaults = union global autofields
-
-     local      <- getMakeSettings "ppconf.json" (settingsDialog "Configure Album!\n" (askFor defaults) dialogFields)
-     return $ Settings ["."] (union local defaults)
+     local       <- loadOrCreate "ppconf.json" (putStrLn "Configure Album!\n" >>
+                                                settingsDialog (askFor defaults) dialogFields)
+     return       $ Settings ["."] (toList . union local $ defaults)

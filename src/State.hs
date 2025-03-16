@@ -5,8 +5,7 @@
 module State (LocalState(..), getState) where
 
 import GHC.Generics ( Generic )
-import Files (File, filterFiles, FileType (AudioFile), loadFile, tryLoad, path, TrackName(..), Checksum)
-import Settings (Settings (trackDirs, fields), CorruptedConfig (CorruptedConfig), getSettings, askAll)
+import Files (File, filterFiles, FileType (AudioFile), loadFile, path, TrackName(..), Checksum)
 import System.Directory (getCurrentDirectory, listDirectory)
 import Data.List (nub)
 import Data.Map ((!), toList, Map)
@@ -15,17 +14,15 @@ import Data.Aeson (eitherDecode, FromJSON, ToJSON)
 import qualified Data.ByteString.Lazy as BS
 import Control.Exception
 import Data.Map (lookup)
+import Settings (Settings, Fields)
 
-data Field = Track String
-           | AlbumName
-           | Cover
-           | Video
-           | Description
-           | Metadata deriving (Generic, Show)
+data LocalState = LocalState {
+  tracks :: [TrackName],
+  metadata :: Fields
+                             } deriving (Show, Generic)
 
-
-type LocalState = Map Field Checksum
-
+instance FromJSON LocalState
+instance ToJSON LocalState
 
 
 promoteIO :: Maybe a -> (a-> IO (Maybe b)) -> IO (Maybe b)

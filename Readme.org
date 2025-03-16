@@ -98,3 +98,11 @@ Aseson
 - Folder Modules -> foreach file
 - concat Modules -> concat to single
 - Metadata
+* V2
+** Validate
+- Modules produce Targets
+- Targets can be validated by cached / move
+- unvalidated Targets get rerendered
+** Modules
+- Store info about last State
+- calculate nessercery tasks
