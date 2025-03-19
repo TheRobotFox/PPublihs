@@ -1,9 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE FlexibleInstances #-}
 
 -- | PPublihs Settings
-module Settings (Settings(..), Fields, Field(..), getSettings, askAll, askNew, askOverwrite) where
+module Settings (configDir, Settings(..), Fields, Field(..), getSettings, askAll, askNew, askOverwrite) where
 import Files (searchFile, FileType(..), loadOrCreate)
 import Data.Map (Map, member, fromList, empty, union, lookup, (!))
 import System.FilePath (combine, takeFileName)
@@ -13,10 +11,12 @@ import GHC.Generics (Generic)
 import System.IO (hFlush, stdout)
 import Data.Aeson (ToJSONKey, FromJSONKey, ToJSON, FromJSON)
 import System.Directory (getCurrentDirectory, listDirectory, getXdgDirectory, XdgDirectory (..))
+import Data.Time (UTCTime (utctDay), getCurrentTime)
+import Data.Time.Calendar (toGregorian)
 
 -- Definitions
 
-data Field = AlbumName | Cover | Video | Description | Attr String
+data Field = File String | Attr String
            deriving (Generic, Show, Eq, Ord)
 type Fields a = Map Field a
 
@@ -36,21 +36,32 @@ instance FromJSON Settings
 
 dialogFields :: [(Field, String)]
 dialogFields =
-  [(Attr "artist", "Artist Name"                 ),
-   (Attr "genre" , "Common Genre"                ),
-   (AlbumName    , "Album Name"                  ),
-   (Description  , "YouTube Description Textfile"),
-   (Cover        , "Cover Image"                 ),
-   (Video        , "Album Video"                 )]
+  [(Attr "artist"     , "Artist Name"                 ),
+   (Attr "genre"      , "Common Genre"                ),
+   (Attr "album"      , "Album Name"                  ),
+   (File "description", "YouTube Description"         ),
+   (File "cover"      , "Cover Image"                 ),
+   (File "video"      , "Album Video"                 )]
 
 findDefaults :: IO (Fields String)
-findDefaults = fmap (fromList . catMaybes) . sequence $
-                [def Cover       $ findFile ImageFile "cover"     ,
-                 def Video       $ findFile VideoFile "video"     ,
-                 def Description $ findFile TextFile "description",
-                 def AlbumName   $ Just <$> takeFileName <$> getCurrentDirectory]
-  where
-    def field dflt = fmap (fmap ((,) field)) dflt
+findDefaults = do
+  dir <- configDir
+  let configFile = combine dir "defaults.json"
+
+  global <- loadOrCreate configFile (putStrLn ("PPublihs Setup Dialog!\n\
+               \Please enter default Global values now, you can change all settings later\n\
+               \in " ++ show configFile ++ " or via settings command\n\
+               \Select Default by leaving empty\n") >> settingsDialog (askAll empty) (take 2 dialogFields))
+
+  gen <- fmap (fromList . catMaybes) . sequence $
+                [def (File "cover"      ) $ findFile ImageFile "cover"     ,
+                 def (File "video"      ) $ findFile VideoFile "video"     ,
+                 def (File "description") $ findFile TextFile "description",
+                 def (Attr "year"       ) $  fmap (Just . show . (\(y,_,_)->y) . toGregorian . utctDay) getCurrentTime,
+                 def (Attr "album"      ) $ Just <$> takeFileName <$> getCurrentDirectory]
+
+  return $ union global gen
+        where def field dflt = fmap (fmap ((,) field)) dflt
 
 
 configDir :: IO FilePath
@@ -91,15 +102,8 @@ settingsDialog ask questions =
   sequence (map ask questions) >>= return . fromList . catMaybes
 
 getSettings :: Dialog -> IO Settings
-getSettings askFor =
-  do configFile  <- (flip combine) "defaults.json" <$> configDir
-     global      <- loadOrCreate configFile (putStrLn
-                                             ("PPublihs Setup Dialog!\n\
-               \Please enter default Global values now, you can change all settings later\n\
-               \in " ++ show configFile ++ " or via settings command\n\
-               \Select Default by leaving empty\n") >> settingsDialog (askAll empty) (take 2 dialogFields))
-     autofields  <- findDefaults
-     let defaults = union global autofields
+getSettings askFor = do
+     defaults  <- findDefaults
      local       <- loadOrCreate "ppconf.json" (putStrLn "Configure Album!\n" >>
                                                 settingsDialog (askFor defaults) dialogFields)
      return       $ Settings ["."] (union local defaults)

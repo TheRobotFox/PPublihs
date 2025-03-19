@@ -27,11 +27,11 @@ library
   exposed-modules:
       Cli
       Diff
+      Env
       FFMpeg
       Files
       Module
       Settings
-      State
   other-modules:
       Paths_PPublihs
   autogen-modules:
@@ -41,6 +41,7 @@ library
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
       aeson
+    , aeson-pretty
     , base >=4.7 && <5
     , base64-bytestring
     , bytestring
@@ -68,6 +69,7 @@ executable PPublihs-exe
   build-depends:
       PPublihs
     , aeson
+    , aeson-pretty
     , base >=4.7 && <5
     , base64-bytestring
     , bytestring
@@ -97,6 +99,7 @@ test-suite PPublihs-test
   build-depends:
       PPublihs
     , aeson
+    , aeson-pretty
     , base >=4.7 && <5
     , base64-bytestring
     , bytestring

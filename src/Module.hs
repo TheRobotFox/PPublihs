@@ -1,26 +1,32 @@
 {-# LANGUAGE DeriveGeneric #-}
 -- | Modules
 
-module Module where
-import Files ( Checksum, TrackName(..), readMD5, moveJunk, File )
+module Module (runModule, getModules, generateDefaultModules) where
 import FFMpeg (RenderSettings (..))
-import Settings (configDir)
-import System.Directory (listDirectory, doesFileExist, renameFile)
-import Data.Aeson (eitherDecode, FromJSON, ToJSON)
+import System.Directory (listDirectory, doesFileExist, renameFile, removeFile, createDirectoryIfMissing)
+import Data.Aeson (eitherDecode, FromJSON, ToJSON, encode)
+-- import Data.Aeson.Encode.Pretty (encodePretty)
 import GHC.Generics (Generic)
-import State (LocalState (..))
-import Diff (Event (..), TrackEvent (..), getEvents)
-import Data.Map ( Map, toList, fromList, insert, findWithDefault )
+import Data.Map ( lookup, Map, keys, toList, union, fromList )
 import Prelude hiding (lookup)
 import System.FilePath (combine, (</>), replaceExtension)
-import qualified Data.ByteString.Lazy as BS
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BSL
 import Control.Exception (throwIO, Exception)
-import Data.List (elemIndices)
-import Control.Monad (filterM, liftM2)
+import Data.List (elemIndices, find, findIndex)
+import Control.Monad (filterM, msum, ap)
 import Data.Data ( Typeable )
+import Files (TrackName (..), Checksum, loadOrCreate, moveJunk, md5Str)
+import Env (LocalState (..), Env (..))
+import Settings (Field (..), configDir, Fields(..))
+import Data.Function ( on )
+import Debug.Trace (trace)
+import Control.Monad.Trans.Reader (ReaderT(runReaderT), ask)
+import Control.Monad.Trans.Class
 import Data.Maybe (fromMaybe)
 
-data ModuleState = ModuleState{rendered :: [File], config :: RenderSettings, current :: LocalState}
+
+data ModuleState = ModuleState{rendered :: Map TrackName Checksum, config :: RenderSettings, current :: LocalState}
   deriving Generic
 
 instance FromJSON ModuleState
@@ -30,116 +36,138 @@ data ModuleExecExpection = CacheError String | ModuleConfigError String deriving
 
 instance Exception ModuleExecExpection
 
-  -- TODO create Folder if missing
   -- Generate Default Modues
-
-
--- defaultModules :: [String]
--- defaultModules = ["flac", "mp3", "amuse", "full", "video"]
-
--- generateDefault :: FilePath -> IO ()
--- generateDefault "flac" = return
--- generateDefault "mp3" = return
--- generateDefault "amuse" = return
--- generateDefault "full" = return
--- generateDefault "video" = return
 
 getModules :: IO [FilePath]
 getModules = do cfgDir <- configDir
                 listDirectory $ combine cfgDir "modules"
 
 
--- Module loading
 
+mp3mtdt :: [Field]
+mp3mtdt = [File "cover", Attr "title", Attr "author", Attr "album", Attr "year", Attr "track", Attr "genre"]
+
+defaultModules :: [(String, RenderSettings)]
+defaultModules = [("flac", SingleRender [File "cover"] [] "flac"),
+                  ("mp3", SingleRender mp3mtdt [] "mp3"),
+                  ("amuse", SingleRender [] ["-a 44100"] "wav"),
+                  ("full", MergedRender mp3mtdt [] "mp3"),
+                  ("video", MergedRender [File "video"] [] "mp4")]
+
+generateDefaultModules :: IO ()
+generateDefaultModules = do
+  confDir <- configDir
+  let modDir  = combine confDir "modules"
+  createDirectoryIfMissing True modDir
+  let write (mod, cfg) = BSL.writeFile (combine modDir mod) . encodePretty $ cfg
+
+  present <- getModules
+  mapM_ write $ filter (not . (`elem` present) . fst) defaultModules
+
+-- Module props
 
 readConfig :: String -> IO RenderSettings
 readConfig name = do
   cfgDir <- configDir
   exists <- doesFileExist (cfgDir </> "modules" </> name)
   if exists then do
-    cfg <- BS.readFile (cfgDir </> "modules" </> name)
+    cfg <- BSL.readFile (cfgDir </> "modules" </> name)
     case eitherDecode cfg of
       Right r -> return r
       Left err -> throwIO $ ModuleConfigError err
   else
     throwIO $ ModuleConfigError "Does not exist"
 
-cleanState :: String -> IO ModuleState
-cleanState name = do cfg <- readConfig name
-                     return $ ModuleState [] cfg (LocalState [] [] "" Nothing Nothing Nothing [])
-
-loadFromCache :: String -> IO ModuleState
-loadFromCache name =
-  do exists <- doesFileExist cache
-     if exists then do
-        cached <- BS.readFile cache
-        case eitherDecode cached of
-          Right r -> return r
-          Left err -> throwIO $ CacheError err
-     else
-        cleanState name
-  where cache = combine "cache" name
-
-loadModule :: String -> IO ModuleState
-loadModule name =
-  do cached <- loadFromCache name
-     cfg <- readConfig name
-     if config cached /= cfg then
-       return cached{cacheChecksums = []}
-     else
-       return cached
--- Translate Events to Tasks
-data ModuleTask = MoveCached (Maybe TrackName) | Rerender | Delete -- TODO RerenderMetadata
-type Tasks = Map TrackName ModuleTask
-
-insertTask :: TrackName -> ModuleTask -> Tasks -> Tasks
-insertTask trk task m = insert trk (maxTask (findWithDefault (MoveCached Nothing) trk m) task) m
-  where
-    maxTask Delete _ = Delete
-    maxTask (MoveCached Nothing) b = b
-    maxTask a _ = a
-
-translateEvents :: RenderSettings -> [TrackName] -> [Event] -> [(TrackName, ModuleTask)]
-translateEvents (SingleRender mtdt _ _) trks = toList . foldr f (fromList [])
-  where
-    f (Track trk evt) m = insertTask trk (case evt of
-          New -> Rerender
-          Removed -> Delete
-          Reordered -> if mtdt then Rerender else MoveCached Nothing
-          (RenameFrom prev) -> if mtdt then Rerender else MoveCached (Just prev)) m
-    f AlbumNameChanged m = if mtdt then foldr ((flip insert Rerender)) m trks else m
-    f CoverChanged m = if mtdt then foldr ((flip insert Rerender)) m trks else m
-
--- Restore interal state, if checksums don't match
-
--- Move changed cache Files to junk and request Rerender
-repairCache :: (TrackName -> FilePath) -> [TrackName] -> IO [(TrackName, ModuleTask)]
-repairCache outPath = mapM (liftM2 (>>) (moveJunk . outPath)  (return . flip (,) Rerender))
-
 
 moduleOutput :: String -> String -> [TrackName] -> TrackName -> FilePath
 moduleOutput modName fmt order tn@(TrackName track) = modName </> (show . head . (elemIndices tn) $ order) ++ "." ++ replaceExtension track fmt
 
-filesChanged :: (TrackName -> FilePath) -> [(TrackName, Checksum)] -> IO [TrackName]
-filesChanged outPath = fmap (map fst) . filterM (liftA2 (fmap) ((/=) . snd) (readMD5 . outPath . fst))
+
+-- Manage Cache
+
+cleanupCache :: (TrackName -> FilePath) -> [TrackName] -> IO ()
+cleanupCache outPath = mapM_ (moveJunk . outPath)
+
+filesChanged :: (TrackName -> FilePath) -> Map TrackName Checksum -> IO [TrackName]
+filesChanged outPath = fmap (map fst) . filterM (liftA2 (fmap) ((/=) . snd) (fmap md5Str . BS.readFile . outPath . fst)) . toList
 
 
-execute :: RenderSettings -> (TrackName -> FilePath) -> (TrackName -> FilePath) -> (TrackName, ModuleTask) -> IO ()
-execute _ prevOut newOut (track, (MoveCached prev)) = renameFile (prevOut . fromMaybe track $ prev) (newOut track)
-execute (SingleRender _ _ _) _ newOut (tn@(TrackName track), Rerender) = putStrLn $ "ffmpeg -i " ++ track ++ " ... "  ++ newOut tn
 
-runModule :: String -> LocalState -> IO ()
-runModule modName state = do
+-- Matchback Tracks to Cache
 
-  modState <- loadModule modName
+matchTrack :: [(TrackName, Checksum)] -> (TrackName, Checksum) -> Maybe TrackName
+matchTrack trackList track = fmap fst . msum $ [matchBy fst, matchBy snd]
+        where matchBy fn = find (on (==) fn track) trackList
+
+
+matchback :: [(TrackName, Checksum)] -> [(TrackName, Checksum)] -> [(Maybe TrackName, Maybe TrackName)]
+matchback [] x =  map ((,) Nothing . Just . fst) x
+matchback x [] =  map (flip (,) Nothing . Just . fst) x
+matchback prev (x:xs) = let match = matchTrack prev x in
+  (match, Just . fst $ x) : case match of
+                       Just rm -> matchback ( filter ((/= rm) . fst) prev) xs
+                       Nothing -> matchback prev xs
+
+trackChanges :: [(TrackName, Checksum)] -> [(TrackName, Checksum)] -> [(Maybe TrackName, Maybe TrackName)]
+trackChanges prev now = filter (not . eq) . matchback prev $ now
+  where eq (a,b) = a==b && (((== a) . Just . fst) `findIndex` prev) == (((== b) . Just . fst) `findIndex` now) -- filter unchanged Tracks
+
+
+getMetadata :: LocalState -> TrackName -> Fields String
+getMetadata state trk = union (Env.metadata . state) . fromList $ [(Attr "track", trk `elemIndex` (tracks state)), -- TODO get metadata from Env
+                                                  (Attr "title", trk)]
+
+metadataValid :: LocalState -> LocalState -> [Field] -> Bool
+metadataValid prev now = and . map (on (liftA2 (==)) (flip lookup . Env.metadata) prev now)
+
+data RenderInfo = RenderInfo{prevOutput :: TrackName->FilePath,
+                             newOutput :: TrackName->FilePath,
+                             renderSettings :: RenderSettings,
+                             rerender :: TrackName -> ReaderT (Fields String) IO (),
+                             validatemetadata :: [Field] -> Bool}
+
+execute :: RenderInfo -> (Maybe TrackName, Maybe TrackName) -> ReaderT (Fields String) IO ()
+execute (RenderInfo pO nO cfg _ mtdt) (Just from, Just to) = if mtdt . FFMpeg.metadata $ cfg then
+    lift $ renameFile (pO from) (nO to)
+  else do
+    fields <- ask
+    lift $ do
+      putStrLn $ "ffmpeg -i " ++ pO from ++ " -c copy -s " ++ show fields ++ " -> " ++ nO to ++ "; delete old"
+execute cfg (Just from, Nothing) = lift . removeFile . prevOutput cfg $ from
+execute cfg (Nothing, Just to) = rerender cfg $ to
+
+
+
+runModule :: Env -> String -> IO ()
+runModule env modName = do
+
+  let prevState = state env
+
+  -- load
   newCfg <- readConfig modName
+  let cacheFile = (combine "cache" modName)
+  modState <- loadOrCreate cacheFile $ return . ModuleState mempty newCfg $ LocalState [] (Env.metadata prevState)
 
-  let prevOut = moduleOutput modName (format . config $ modState) (trackOrder . current $ modState)
-  cacheEvents <- repairCache prevOut =<< filesChanged prevOut (cacheChecksums modState)
+  let (prevOut, newOut) = on (,) (moduleOutput modName (format . config $ modState) . map fst . tracks) (current modState) prevState
+      matched = on trackChanges tracks (current modState) prevState
 
-  let evts = translateEvents (config modState) (trackOrder . current $ modState) $ getEvents (current modState) state
-      missingTracks = map (flip (,) $ Rerender) $ filter (`elem` map fst (cacheChecksums modState)) (trackOrder . current $ modState)
-      tasks = foldr (uncurry insertTask) (fromList cacheEvents) $ concat [evts, missingTracks]
-      newOut = moduleOutput modName (format newCfg) (trackOrder . current $ modState)
+  -- validate cache Files
+  dirty <- if newCfg/=config modState then
+    return . keys . rendered $ modState -- invalidate whole cache if render Settigns changed
+  else
+    filesChanged prevOut (rendered modState)
 
-  mapM_ (execute (config modState) prevOut newOut) (toList tasks)
+  cleanupCache prevOut dirty
+  let cacheMatch = map (fmap $ \t->case t of
+        Just x -> if x `elem` dirty then Nothing else Just x
+        Nothing -> Nothing) $ matched
+
+  -- render
+  putStrLn $ unlines . map show $ cacheMatch
+  let renderInfo = (RenderInfo prevOut newOut newCfg (flip ((render env) <*> newOut) newCfg) (metadataValid (current modState) prevState))
+
+  mapM_ (liftA2 (runReaderT) (fromMaybe mempty . fmap (getMetadata prevState) . snd) (execute renderInfo)) cacheMatch
+
+  -- write new Cache
+  rndrcksm <- mapM (sequence . ap (,) (fmap md5Str . BS.readFile . newOut)) . map fst . tracks $ prevState
+  BSL.writeFile cacheFile . encode $ ModuleState (union (fromList rndrcksm) . rendered $ modState) newCfg prevState
