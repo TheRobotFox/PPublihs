@@ -5,9 +5,9 @@ module FFMpeg where
 import GHC.Generics ( Generic )
 import Data.Aeson (FromJSON, ToJSON)
 import Files (TrackName)
-import Settings (Field, Fields)
 import Control.Monad.Trans.Reader (ReaderT, ask)
 import Control.Monad.Trans.Class
+import Track (Metadata, Field)
 
 data RenderSettings = MergedRender{ -- TODO No seperation
     metadata :: [Field],
@@ -30,7 +30,7 @@ instance ToJSON RenderSettings
 -- render_cmd :: File -> RenderSettings -> [File] -> String
 -- render_cmd cover settings tracks = "ffmpeg" ++
 
-ffrender :: FilePath -> TrackName -> FilePath -> RenderSettings -> ReaderT (Fields String) IO ()
+ffrender :: FilePath -> TrackName -> FilePath -> RenderSettings -> ReaderT (Metadata String) IO ()
 ffrender source trk out rcfg = do
     fields <- ask
     lift $ do

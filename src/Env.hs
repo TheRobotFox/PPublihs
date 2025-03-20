@@ -10,7 +10,6 @@ import Data.List (sortOn, groupBy, elemIndex, sortBy, (\\), find)
 import Prelude hiding (lookup)
 import Data.Aeson (FromJSON, ToJSON)
 import qualified Data.ByteString as BS
-import Settings (Settings (..), Fields, Field (..))
 import FFMpeg (RenderSettings, ffrender)
 import Data.String (fromString)
 import Files (FileType(AudioFile), Checksum, TrackName(..), filterFiles, md5Str)
@@ -23,12 +22,13 @@ import GHC.Base (empty)
 import Data.Containers.ListUtils ( nubOrd )
 import GHC.IO.Exception (IOException)
 import Control.Monad.Trans.Reader (ReaderT)
-import Control.Monad.Trans.Class
 import Control.Monad.IO.Class (liftIO)
+import Track (Metadata)
+import Settings (Settings)
 
 data LocalState = LocalState {
   tracks :: [(TrackName, Checksum)],
-  metadata :: Fields Checksum
+  metadata :: Metadata Checksum
                              } deriving (Show, Generic)
 instance FromJSON LocalState
 instance ToJSON LocalState
@@ -37,7 +37,7 @@ data EnvironmentException = DuplicateTracksError String | UnknownTrackName Strin
 instance Exception EnvironmentException
 
 
-data Env = Env{state :: LocalState, render :: TrackName -> FilePath -> RenderSettings -> ReaderT (Fields String) IO ()}
+data Env = Env{state :: LocalState, render :: TrackName -> FilePath -> RenderSettings -> ReaderT (Metadata String) IO ()}
 
 duplicateTracks :: [FilePath] -> [[(TrackName, FilePath)]]
 duplicateTracks = filter ((> 1) .length)

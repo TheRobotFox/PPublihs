@@ -18,9 +18,7 @@ import Control.Monad (filterM, msum, ap)
 import Data.Data ( Typeable )
 import Files (TrackName (..), Checksum, loadOrCreate, moveJunk, md5Str)
 import Env (LocalState (..), Env (..))
-import Settings (Field (..), configDir, Fields(..))
 import Data.Function ( on )
-import Debug.Trace (trace)
 import Control.Monad.Trans.Reader (ReaderT(runReaderT), ask)
 import Control.Monad.Trans.Class
 import Data.Maybe (fromMaybe)
@@ -112,13 +110,6 @@ trackChanges :: [(TrackName, Checksum)] -> [(TrackName, Checksum)] -> [(Maybe Tr
 trackChanges prev now = filter (not . eq) . matchback prev $ now
   where eq (a,b) = a==b && (((== a) . Just . fst) `findIndex` prev) == (((== b) . Just . fst) `findIndex` now) -- filter unchanged Tracks
 
-
-getMetadata :: LocalState -> TrackName -> Fields String
-getMetadata state trk = union (Env.metadata . state) . fromList $ [(Attr "track", trk `elemIndex` (tracks state)), -- TODO get metadata from Env
-                                                  (Attr "title", trk)]
-
-metadataValid :: LocalState -> LocalState -> [Field] -> Bool
-metadataValid prev now = and . map (on (liftA2 (==)) (flip lookup . Env.metadata) prev now)
 
 data RenderInfo = RenderInfo{prevOutput :: TrackName->FilePath,
                              newOutput :: TrackName->FilePath,
