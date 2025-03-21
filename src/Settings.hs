@@ -7,13 +7,14 @@ import System.Directory (getCurrentDirectory, listDirectory, getXdgDirectory, Xd
 import Data.Time (UTCTime (utctDay), getCurrentTime)
 import Data.Time.Calendar (toGregorian)
 import GHC.Generics (Generic)
-import Data.Map (Map, fromList, (!), mapMaybe)
+import Data.Map (Map, fromList, (!), toList)
 import Control.Monad.Trans.Reader (ReaderT(runReaderT))
 import ConfigDialog (Asking, getConfig, Dialog (Dialog), askMissing)
 import Track (Metadata, Field (..))
 import Files (FileType(..), searchFile)
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, mapMaybe)
 import System.FilePath (takeFileName, combine)
+import Data.List.Split (splitOn)
 
 data Option = MTDT Field | Conf String deriving (Ord, Eq, Show, Generic)
 
@@ -71,10 +72,8 @@ getSettings :: Asking Option -> IO Settings
 getSettings askFor = do
   global <- getAppSettings askMissing
   answers <- runReaderT (getConfig "ppconf.json" askFor) $ Dialog (fromList questions) global
-  return $ Settings (splitAt ',' $ answers!(Conf "trackDirs")) (mapMaybe collectMtdt answers)
+  return $ Settings (splitOn "," $ answers!(Conf "trackDirs")) (fromList . mapMaybe collectMtdt . toList $ answers)
 
-  where
-        collectMtdt :: Option -> String -> Maybe (Field, String)
-        collectMtdt key val = case key of
+  where collectMtdt (key, val) = case key of
           Conf _ -> Nothing
           MTDT m -> Just (m, val)

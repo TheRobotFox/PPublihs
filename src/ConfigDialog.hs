@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 
 -- | Generic Configuration Dialogs
-module ConfigDialog (Dialog(..), getConfig, askAll, askMissing, Key, Asking) where
+module ConfigDialog (Dialog(..), getConfig, askAll, askMissing, Asking) where
 import Data.Map (Map, member, lookup, (!), union, mapWithKey, mapMaybe)
 import Prelude hiding (lookup)
 import System.IO (hFlush, stdout)
@@ -12,10 +12,8 @@ import Data.Maybe (fromMaybe)
 import Files (tryLoad)
 
 -- Definitions
-class (Eq r, FromJSONKey r, ToJSONKey r, Ord r) => Key r
-
 type Fields r = Map r String
-data Key r => Dialog r = Dialog{questions :: Fields r,
+data (Eq r, FromJSONKey r, ToJSONKey r, Ord r) => Dialog r = Dialog{questions :: Fields r,
                                 defaults :: Fields r}
 
 -- Asking Callbacks
@@ -41,7 +39,7 @@ configDialog askFor qust = do
   ans <- sequence . mapWithKey askFor $ qust
   return . mapMaybe id $ ans
 
-getConfig :: Key r => String -> Asking r -> ReaderT (Dialog r) IO (Fields r)
+getConfig :: (FromJSONKey r, ToJSONKey r, Ord r) => String -> Asking r -> ReaderT (Dialog r) IO (Fields r)
 getConfig file askFor = do
   dialog <- ask
   current <- lift . fmap (fromMaybe mempty) . tryLoad $ file
