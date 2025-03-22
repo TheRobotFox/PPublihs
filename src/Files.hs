@@ -3,7 +3,7 @@
 {-# LANGUAGE BlockArguments #-}
 -- | PPublihs File Definition
 
-module Files (FileType (..), filterFiles, searchFile, tryLoad, createFile, moveJunk, TrackName(..), Checksum(..), md5Str) where
+module Files (FileType (..), filterFiles, searchFile, tryLoad, createFile, moveJunk, Checksum(..), md5Str) where
 
 import System.FilePath (takeExtension, takeFileName, combine, takeDirectory)
 import System.FilePath.Posix (dropExtension)
@@ -13,7 +13,7 @@ import GHC.Generics (Generic)
 import Control.Monad (liftM2, guard, MonadPlus (mzero))
 import Data.List (find)
 import Data.Char (toLower)
-import Data.Aeson (FromJSON, ToJSON, eitherDecode, encode, ToJSONKey, FromJSONKey)
+import Data.Aeson (FromJSON, ToJSON, eitherDecode, encode)
 import qualified Crypto.Hash.MD5 as MD5
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
@@ -27,18 +27,12 @@ data ContentException = UnknownExtension | ReadAudioLength String | RunFFProbe S
 instance Exception ContentException
 
 
-newtype TrackName = TrackName String deriving (Show, Eq, Generic, Ord)
 newtype Checksum = Checksum String  deriving (Show, Eq, Generic)
 
 data FileType = TextFile | VideoFile | ImageFile | AudioFile deriving (Show,Eq)
 
 instance FromJSON Checksum
 instance ToJSON Checksum
-
-instance ToJSONKey TrackName
-instance FromJSONKey TrackName
-instance FromJSON TrackName
-instance ToJSON TrackName
 
 getTypeExts :: FileType -> [String]
 getTypeExts VideoFile = [".mp4", ".avi", ".mpeg", ".mkv"]

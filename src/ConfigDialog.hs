@@ -9,7 +9,8 @@ import Control.Monad.Trans.Reader (ReaderT, ask)
 import Control.Monad.Trans.Class ( MonadTrans(lift) )
 import Data.Aeson (FromJSONKey, ToJSONKey)
 import Data.Maybe (fromMaybe)
-import Files (tryLoad)
+import Files (tryLoad, createFile)
+import Control.Monad.IO.Class
 
 -- Definitions
 type Fields r = Map r String
@@ -42,9 +43,11 @@ configDialog askFor qust = do
 getConfig :: (FromJSONKey r, ToJSONKey r, Ord r) => String -> Asking r -> ReaderT (Dialog r) IO (Fields r)
 getConfig file askFor = do
   dialog <- ask
-  current <- lift . fmap (fromMaybe mempty) . tryLoad $ file
+  fileLoaded <- lift . tryLoad $ file
+  let present = union (fromMaybe mempty $ fileLoaded) . defaults $ dialog
+      askFn = if null fileLoaded then askAll else askFor
 
-  let present = union current . defaults $ dialog
-
-  res <- lift $ configDialog (askFor present) . questions $ dialog
-  return . union res $ present
+  answers <- lift $ configDialog (askFn present) . questions $ dialog
+  let res = union answers $ present
+  lift $ createFile file res
+  return res

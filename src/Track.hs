@@ -4,31 +4,43 @@
 module Track where
 import GHC.Generics (Generic)
 import Data.Aeson ( FromJSON, FromJSONKey, ToJSON, ToJSONKey )
-import Data.Map (Map)
+import Data.Map (Map, filterWithKey)
+import Data.Function (on)
+import Control.Monad.Trans.Reader
 
-
-data Field = File String | Attr String
+data Attr = Cover | Video | Year | Artist | Album | Description | Genre
            deriving (Generic, Show, Eq, Ord)
-instance ToJSONKey Field
-instance FromJSONKey Field
-instance ToJSON Field
-instance FromJSON Field
+instance ToJSON Attr
+instance FromJSON Attr
 
-type Metadata a = Map Field a
+data Metadata = File FilePath | Tag Attr
+           deriving (Generic, Show, Eq, Ord)
+instance ToJSONKey Metadata
+instance FromJSONKey Metadata
+instance ToJSON Metadata
+instance FromJSON Metadata
 
+data Track a = Track{source :: a, metadata :: Map Metadata a}
 
--- data Track = Track{name :: TrackName, metadata :: Fields String}
+metadataValid :: Eq c => [Metadata] -> Track c -> Track c -> Bool
+metadataValid testFor = on ((==) . filterWithKey (const . (`elem` testFor))) metadata
 
+duplicateTracks :: [FilePath] -> [[(String, FilePath)]]
+duplicateTracks = filter ((> 1) .length)
+                . groupBy (on (==) fst)
+                . sortOn fst
+                . map (flip (,) <*> (TrackName . takeBaseName))
 
--- -- Settings Dialog Questions
+getOrder :: FilePath -> [TrackName] -> IO [TrackName]
+getOrder file tracks' = do
+  ord <- (fmap (map TrackName . lines) . readFile $ file) `catch` (\(_ :: IOException)->return [])
 
--- -- Gloal SettingsDialog
--- globalFields :: [(Field, String)]
--- globalFields = take 2 dialogFields
+  let invalid = ord \\ tracks'
+  when (invalid /= empty) $ throwIO (UnknownTrackName $ "Invalid Tracks in '"++file++"': " ++ show invalid)
 
--- getMetadata :: LocalState -> TrackName -> Fields String
--- getMetadata state trk = union (Env.metadata . state) . fromList $ [(Attr "track", trk `elemIndex` (tracks state)), -- TODO get metadata from Env
---                                                   (Attr "title", trk)]
+  let res = nubOrd $ ord ++ tracks'
 
--- metadataValid :: LocalState -> LocalState -> [Field] -> Bool
--- metadataValid prev now = and . map (on (liftA2 (==)) (flip lookup . Env.metadata) prev now)
+  writeFile file . unlines . map (\(TrackName s)->s) $ res
+  return res
+
+loadTracks :: [FilePath] -> Map Metadata String
