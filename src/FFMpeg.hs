@@ -4,17 +4,17 @@
 module FFMpeg where
 import GHC.Generics ( Generic )
 import Data.Aeson (FromJSON, ToJSON)
-import Files (TrackName)
 import Control.Monad.Trans.Reader (ReaderT, ask)
 import Control.Monad.Trans.Class
-import Track (Metadata, Field)
+import Track (Track (..), Metadata)
+import Data.Map (Map, (!))
 
 data RenderSettings = MergedRender{ -- TODO No seperation
-    metadata :: [Field],
+    supported :: [Metadata],
     filters :: [String],
     format :: String
   } | SingleRender{
-    metadata :: [Field],
+    supported :: [Metadata],
     filters :: [String],
     format :: String
   } deriving (Generic, Eq)
@@ -30,8 +30,7 @@ instance ToJSON RenderSettings
 -- render_cmd :: File -> RenderSettings -> [File] -> String
 -- render_cmd cover settings tracks = "ffmpeg" ++
 
-ffrender :: FilePath -> TrackName -> FilePath -> RenderSettings -> ReaderT (Metadata String) IO ()
-ffrender source trk out rcfg = do
-    fields <- ask
+ffrender :: Track String -> FilePath -> RenderSettings -> IO ()
+ffrender track out rcfg = do
     lift $ do
-      putStrLn $ "ffmpeg -i " ++ source ++ " -c copy -s " ++ show fields ++ " -> " ++ out ++ "; delete old"
+      putStrLn $ "ffmpeg -i " ++ source track ++ " -c copy -s " ++ show (metadata track) ++ " -> " ++ out ++ "; delete old"

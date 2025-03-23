@@ -16,15 +16,15 @@ import Control.Exception (throwIO, Exception)
 import Data.List (elemIndices, find, findIndex)
 import Control.Monad (filterM, msum, ap)
 import Data.Data ( Typeable )
-import Files (TrackName (..), Checksum, loadOrCreate, moveJunk, md5Str)
-import Env (LocalState (..), Env (..))
+import Files (Checksum, moveJunk, md5Str)
 import Data.Function ( on )
 import Control.Monad.Trans.Reader (ReaderT(runReaderT), ask)
 import Control.Monad.Trans.Class
 import Data.Maybe (fromMaybe)
+import Track (Track)
 
 
-data ModuleState = ModuleState{rendered :: Map TrackName Checksum, config :: RenderSettings, current :: LocalState}
+data ModuleState = ModuleState{rendered :: Map String (FilePath, Checksum), config :: RenderSettings, last :: Map String (Track Checksum)}
   deriving Generic
 
 instance FromJSON ModuleState
@@ -39,7 +39,6 @@ instance Exception ModuleExecExpection
 getModules :: IO [FilePath]
 getModules = do cfgDir <- configDir
                 listDirectory $ combine cfgDir "modules"
-
 
 
 mp3mtdt :: [Field]
