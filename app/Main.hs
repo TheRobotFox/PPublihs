@@ -1,11 +1,9 @@
 module Main (main) where
 
 import Cli
-import Settings
+import Env
 import Module (generateDefaultModules)
 import Control.Monad.Trans.Reader (ReaderT(runReaderT))
-
-settingsDialog =
 
 main :: IO ()
 main = do

@@ -4,12 +4,13 @@
 {-# OPTIONS_GHC -Wno-deferred-out-of-scope-variables #-}
 -- | PPublihs Environment
 
-module Env (Env(..), Config, loadEnv, EnvironmentException, loadTracks, appName) where
+module Env (Env(..), Config, EnvironmentException, loadTracks, appName, getSettings) where
 
 import System.Directory (listDirectory, doesFileExist, getCurrentDirectory, getXdgDirectory, XdgDirectory (XdgConfig))
 import Data.List (sortOn, groupBy, elemIndex, (\\))
 import Files (FileType(..), searchFile)
-import Data.Map (Map, filterWithKey, fromList, union)
+import Data.Map (Map, filterWithKey, fromList, union, (!), toList)
+import qualified Data.Map as Map
 import System.FilePath (takeBaseName, takeFileName, combine)
 import Data.Function (on)
 import Control.Exception (Exception, throwIO, IOException, catch)
@@ -22,12 +23,15 @@ import Data.Aeson (ToJSONKey, FromJSONKey, ToJSON, FromJSON)
 import Data.Time (getCurrentTime, UTCTime (utctDay))
 import Data.Time.Calendar (toGregorian)
 import Control.Monad.Trans.Reader ( ReaderT(runReaderT) )
+import Data.Maybe (mapMaybe)
+import GHC.Generics (Generic)
 
 
-data EnvField = MD Metadata | TrackDirs | Order
+data EnvField = MD Metadata | TrackDirs | Order deriving (Generic, Eq, Ord)
 
 instance ToJSONKey EnvField
 instance FromJSONKey EnvField
+
 instance ToJSON EnvField
 instance FromJSON EnvField
 
@@ -65,7 +69,7 @@ appName = "ppublihs"
 
 getSettings :: IO Config
 getSettings = do
-  fields <- fmap (mapMaybe id) . sequence . Data.Map.map snd $ envFields
+  fields <- fmap (Map.mapMaybe id) . sequence . Map.map snd $ envFields
   globalConfPath <- getXdgDirectory XdgConfig . combine appName $ "defaults.json"
 
   globalExists <- doesFileExist globalConfPath
@@ -79,7 +83,7 @@ getSettings = do
 
   globalConf <- runReaderT (getConfig globalConfPath askMissing) $ on Dialog globalFields questions fields
   runReaderT (getConfig "ppconf.json" askMissing) $ Dialog questions globalConf
-    where questions = (Data.Map.map fst envFields)
+    where questions = (Map.map fst envFields)
 
 
 -- Track Loading
@@ -117,11 +121,11 @@ getOrder ordFile tracks = do
 loadMetadata :: Map Metadata String -> [String] -> [FilePath] -> Map String (Track String)
 loadMetadata mtdt ord = fromList . map (liftA2 (,) takeBaseName fn)
   where fn src = Track src $ union mtdt . fromList $ [(Attr Title, takeBaseName src),
-                                                      (Attr Nr, show . (+1) . (`elemIndex` ord) . takeBaseName $ src)]
+                                                      (Attr Nr, show . fmap (+1) . (`elemIndex` ord) . takeBaseName $ src)]
 
 loadTracks :: Map EnvField String -> IO (Map String (Track String))
 loadTracks env = do
-  tracks <- getTracks (env!TrackDirs)
+  tracks <- getTracks . lines $ (env!TrackDirs)
   order <- getOrder (env!Order) tracks
   return $ loadMetadata mtdt order tracks
   where mtdt = fromList . mapMaybe (\case (MD a, b)->Just (a,b); _ -> Nothing) . toList $ env

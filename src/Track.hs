@@ -4,8 +4,10 @@
 module Track where
 import GHC.Generics (Generic)
 import Data.Aeson ( FromJSON, FromJSONKey, ToJSON, ToJSONKey )
-import Data.Map (Map, filterWithKey)
+import Data.Map (Map, filterWithKey, (!), keys, fromList)
 import Data.Function (on)
+import Files (Checksum (Checksum), md5Str)
+import qualified Data.ByteString as BS
 
 data Attr = Year | Artist | Album | Genre | Title | Nr
            deriving (Generic, Show, Eq, Ord)
@@ -33,6 +35,10 @@ metadataValid :: Eq c => [Metadata] -> Track c -> Track c -> Bool
 metadataValid testFor = on ((==) . filterWithKey (const . (`elem` testFor))) metadata
 
 
--- getChecksum :: Field -> String -> IO Checksum
--- getChecksum (Attr _) = return . md5Str . fromString
--- getChecksum (File _) = fmap md5Str . BS.readFile
+getChecksum :: Track String -> IO (Track Checksum)
+getChecksum (Track src mtdt) = do
+  s <- fmap md5Str . BS.readFile $ src
+  m <- fmap fromList . mapM (sequence . liftA2 (,) id cksm) . keys $ mtdt
+  return $ Track s m
+  where cksm a@(Attr _) = return . Checksum $ mtdt!a
+        cksm a@(File _) = fmap md5Str . BS.readFile $ mtdt!a
