@@ -27,12 +27,10 @@ library
   exposed-modules:
       Cli
       ConfigDialog
-      Context
-      Diff
       Env
-      FFMpeg
       Files
       Module
+      Render
       Track
   other-modules:
       Paths_PPublihs

@@ -4,7 +4,7 @@
 {-# OPTIONS_GHC -Wno-deferred-out-of-scope-variables #-}
 -- | PPublihs Environment
 
-module Env (loadEnv, EnvironmentException, loadTracks) where
+module Env (Env(..), Config, loadEnv, EnvironmentException, loadTracks, appName) where
 
 import System.Directory (listDirectory, doesFileExist, getCurrentDirectory, getXdgDirectory, XdgDirectory (XdgConfig))
 import Data.List (sortOn, groupBy, elemIndex, (\\))
@@ -30,6 +30,10 @@ instance ToJSONKey EnvField
 instance FromJSONKey EnvField
 instance ToJSON EnvField
 instance FromJSON EnvField
+
+type Config = Map EnvField String
+
+data Env = Env{config :: Config, trackList :: Map String (Track String)}
 
 
 -- Field, Description, Default
@@ -59,13 +63,10 @@ globalFields = filterWithKey (const . (`elem` select))
 appName :: String
 appName = "ppublihs"
 
-loadEnv :: IO (Map EnvField String)
-loadEnv = do
+getSettings :: IO Config
+getSettings = do
   fields <- fmap (mapMaybe id) . sequence . Data.Map.map snd $ envFields
-  appDir <- getXdgDirectory XdgConfig appName
-
-  let globalConfPath = combine appDir "defaults.json"
-      localConfPath = "ppconf.json"
+  globalConfPath <- getXdgDirectory XdgConfig . combine appName $ "defaults.json"
 
   globalExists <- doesFileExist globalConfPath
 
@@ -77,10 +78,8 @@ loadEnv = do
         \Select Default by leaving empty\n"
 
   globalConf <- runReaderT (getConfig globalConfPath askMissing) $ on Dialog globalFields questions fields
-  runReaderT (getConfig localConfPath askMissing) $ Dialog questions globalConf
+  runReaderT (getConfig "ppconf.json" askMissing) $ Dialog questions globalConf
     where questions = (Data.Map.map fst envFields)
-
-
 
 
 -- Track Loading

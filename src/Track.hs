@@ -23,7 +23,10 @@ instance FromJSONKey Metadata
 instance ToJSON Metadata
 instance FromJSON Metadata
 
-data Track a = Track{source :: a, metadata :: Map Metadata a}
+data Track a = Track{source :: a, metadata :: Map Metadata a} deriving (Generic)
+
+instance ToJSON a => ToJSON (Track a)
+instance FromJSON a => FromJSON (Track a)
 
 
 metadataValid :: Eq c => [Metadata] -> Track c -> Track c -> Bool
