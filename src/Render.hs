@@ -104,7 +104,10 @@ ffrender :: ReaderT Env IO FilePath
 ffrender = do
   env <- ask
   out <- getOutput
-  let cmd = runFFBuilder out . runReaderT 
+  let cmd = runFFBuilder out . flip runReaderT env . sequence $
+            [lift . mapM (flip select >> addSrc . source) . tracks $ env, -- insert Tracks
+             
+             ]
   
     
   src <- getSource
