@@ -17,7 +17,7 @@ import qualified Data.ByteString.Lazy as BSL
 import Control.Exception (throwIO, Exception)
 import Data.List (find, filter)
 import Data.Data ( Typeable )
-import Files (moveJunk, md5Str, tryLoad, createFile, Checksum)
+import Files (moveJunk, md5Str, tryLoad, createFile, Checksum (Checksum))
 import Data.Function ( on )
 import Data.Maybe (fromMaybe, catMaybes)
 import Track (Track (metadata, source), Metadata (..), Attr (..), File (..))
@@ -114,14 +114,17 @@ metadataChanged prev new = do
  where matches mtdt = on (/=) (filterWithKey (const . (`elem` mtdt)). metadata)
 
 
-sync :: ([Task] -> IO FilePath) -> [(Maybe String, Maybe String)] -> ReaderT Env IO (Map String (FilePath, Checksum))
-sync render matches = fmap (fromList . catMaybes) . mapM (uncurry getTask) $ matches
+sync :: ([Task] -> IO [(String,FilePath)]) -> [(Maybe String, Maybe String)] -> ReaderT Env IO (Map String (FilePath, Checksum))
+sync render matches = do
+ tasks <- fmap catMaybes . mapM (uncurry getTask) $ matches
+ outputs <- lift $ render tasks
+ lift . fmap fromList . mapM (sequence . fmap makeCache) $ outputs
 
-  where cacheEntry = sequence . liftA2 (,) id (fmap md5Str . BS.readFile)
+  where makeCache = sequence . liftA2 (,) id (fmap md5Str . BS.readFile)
 
-        getTask :: Maybe String -> Maybe String -> ReaderT Env IO (Maybe (String, Task))
-        getTask (Just a) (Just b) = fmap sequence . sequence . ((,) <*> metadataChanged a) $ b
-        getTask Nothing (Just b) = return . Just . (,) b . Render $ b
+        getTask :: Maybe String -> Maybe String -> ReaderT Env IO (Maybe Task)
+        getTask (Just a) (Just b) = metadataChanged a b
+        getTask Nothing (Just b) = return . Just . Render $ b
         getTask (Just a) Nothing = do
           file <- fmap (fst . flip (!) a . cache . state) ask
           lift . removeFile $ file
@@ -129,7 +132,7 @@ sync render matches = fmap (fromList . catMaybes) . mapM (uncurry getTask) $ mat
         getTask Nothing Nothing = error "absurd Track"
 
 
-runModule :: Map String (Track Checksum) -> String -> (RenderSettings -> Task -> IO FilePath) -> IO ()
+runModule :: Map String (Track Checksum) -> String -> (RenderSettings -> [Task] -> IO [(String, FilePath)]) -> IO ()
 runModule trkList modName render = do
 
   modDir <- getXdgDirectory XdgConfig . combine appName $ "modules"
