@@ -14,7 +14,7 @@ import Control.Monad.Trans.Class (lift)
 import Data.List (intercalate)
 import Prelude hiding (lookup)
 import Data.Maybe (fromMaybe)
-import System.Directory (removeFile, renameFile)
+import System.Directory (removeFile, renameFile, createDirectoryIfMissing)
 
 data RenderSettings = MergedRender{ -- TODO No seperation
     supported :: [Metadata],
@@ -37,8 +37,8 @@ getSource :: ReaderT Env IO String
 getSource = do
   trks <- fmap tracks ask
   return $ case trks of
-    (trk:[]) -> "-i " ++ source trk ++ " -map 0:0"
-    _ -> concatMap (flip (++) "\" " . (++) "-i \"" . source) trks ++
+    (trk:[]) -> "-i " ++ show (source trk) ++ " -map 0:0"
+    _ -> concatMap (flip (++) " " . (++) "-i " . show . source) trks ++
           concatMap (flip (++) ":a:0]" . (++) "[" . show) [0..length trks] ++
           "concat=n="++show (length trks)++":v=0:a=1[outa] -map \"[outa]\""
 
@@ -49,6 +49,7 @@ getOutput = do
   cfg <- fmap settings ask
   trks <- fmap tracks ask
 
+  lift $ createDirectoryIfMissing True dir
   let name = case cfg of
               (MergedRender _ _ _) -> flip (!) (Attr Album) . metadata . head $ trks
               _ -> liftA2 (++) (concatMap (flip (++) ". " . flip (!) (Attr Nr)))
@@ -71,7 +72,7 @@ getMetadata (File Video) = do
     Nothing -> ""
 getMetadata (Attr a) = do
   mtdt <- fmap (metadata . head . tracks) ask
-  let res = \attr -> "-metadata:s:v " ++ show a ++ "=\"" ++ attr ++ "\""
+  let res = \attr -> "-metadata:s " ++ show a ++ "=" ++ show attr ++ " "
   return . fromMaybe "" . fmap res . Data.Map.lookup (Attr a) $ mtdt
   
 
@@ -80,7 +81,7 @@ ffrender = do
   src <- getSource
   mtdt <- (=<<) (fmap concat . mapM getMetadata) . fmap (supported . settings) $ ask
   out <- getOutput
-  lift . liftA2 (>>) putStrLn callCommand $ "ffmpeg " ++ src ++ " " ++ mtdt ++ " " ++ out
+  lift . liftA2 (>>) putStrLn callCommand $ "ffmpeg " ++ src ++ " " ++ mtdt ++ " " ++ show out
   return out
 
 ffupdate :: FilePath -> ReaderT Env IO FilePath
@@ -88,7 +89,7 @@ ffupdate from = do
   out <- fmap outDir ask
   mtdt <- (=<<) (fmap concat . mapM getMetadata) . fmap (supported . settings) $ ask
   lift $ do
-    liftA2 (>>) putStrLn callCommand $ "ffmpeg -i " ++ from ++ " -c copy " ++ mtdt ++ " " ++ out
+    liftA2 (>>) putStrLn callCommand $ "ffmpeg -i " ++ show from ++ " -c copy " ++ mtdt ++ " " ++ show out
     removeFile from
     return out
 
@@ -101,8 +102,8 @@ move from = do
     return to
 
 render :: Map String (Track String) -> FilePath -> RenderSettings -> [Task] -> IO [(String, FilePath)]
-render trkList outDir cfg@(SingleRender _ _ _) tasks = 
-  mapM ((\(trk, path)->sequence (trk, runReaderT path $ Env cfg outDir [trkList!trk])) . exec) tasks
+render trkList out cfg@(SingleRender _ _ _) tasks =
+  mapM ((\(trk, path)->sequence (trk, runReaderT path $ Env cfg out [trkList!trk])) . exec) tasks
  
   where exec (Render trk) = (trk, ffrender)
         exec (UpdateMetadata from trk) = (trk, ffupdate from)

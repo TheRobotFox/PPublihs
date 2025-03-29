@@ -1,108 +1,111 @@
 #+title: Readme
 
-* Concept
-- Album publishing Helper
-- Order Tracks
-- Simple Tool
-- Select Audio from Different Locations -> don't Rename for order
-- User Friendly
-- Auto detect environment
-  Folder Name -> Album Title
-  cover.png -> album Cover
-  vid.mp4 -> render album video
-  metadata.txt -> song metadata
-  desc.txt -> generate Youtube description with timestamps
-  global config for defaults eg. Artist, Genere, (Logo?), YT description
-- Only update as needed
-- cleanup
-- Render format presets eg. Flac, Wave, mp3, raw -> FFMPEG wrapper
-- Output Goals: render Tracks, Merge into single, render with video, generate Description, code?
-  - Mp3 for CD
-  - Wav for HQ Listening
-  - Amuse for publishing?
-  - Flac = wav alternative
-  - Full
-  - Video for Youtube
-- Publisher Helpers, eg YT API, (Uplaod Amuse -> Ask for API ^w^)? ->
-ex.
-#+begin_src
-PPublish $ [format_preset] -> folders Flac,Wav,mp3,amuse
-PPublish $ publish "Youtube" => render video, gen description, API calls
-PPublish $ publish "amuse" => render amuse preset, API calls
-#+end_src
-#+begin_src
-samplerate: 44000
-metadata: true
-cover: true
-folder_suffix: HQ
-ext: .wav
-merge
-channels: 2
-trim silence
-[a]->concat->filters...->out
-#+end_src
+# * Concept
+# - Album publishing Helper
+# - Order Tracks
+# - Simple Tool
+# - Select Audio from Different Locations -> don't Rename for order
+# - User Friendly
+# - Auto detect environment
+#   Folder Name -> Album Title
+#   cover.png -> album Cover
+#   vid.mp4 -> render album video
+#   metadata.txt -> song metadata
+#   desc.txt -> generate Youtube description with timestamps
+#   global config for defaults eg. Artist, Genere, (Logo?), YT description
+# - Only update as needed
+# - cleanup
+# - Render format presets eg. Flac, Wave, mp3, raw -> FFMPEG wrapper
+# - Output Goals: render Tracks, Merge into single, render with video, generate Description, code?
+#   - Mp3 for CD
+#   - Wav for HQ Listening
+#   - Amuse for publishing?
+#   - Flac = wav alternative
+#   - Full
+#   - Video for Youtube
+# - Publisher Helpers, eg YT API, (Uplaod Amuse -> Ask for API ^w^)? ->
+# ex.
+# #+begin_src
+# PPublish $ [format_preset] -> folders Flac,Wav,mp3,amuse
+# PPublish $ publish "Youtube" => render video, gen description, API calls
+# PPublish $ publish "amuse" => render amuse preset, API calls
+# #+end_src
+# #+begin_src
+# samplerate: 44000
+# metadata: true
+# cover: true
+# folder_suffix: HQ
+# ext: .wav
+# merge
+# channels: 2
+# trim silence
+# [a]->concat->filters...->out
+# #+end_src
 
-** First start
-- Dont copy Settings -> reference Settings -> Overlays
-** CLI
-- Set options inside State
-- Execute Jobs
-** On Job
-- Diff with prev State
-- Send Changes to Job -> Job can weight changes to minimize work
-- Afer Job apply diff to Jobs State and safe in .ppub
-** .ppub
-- Stores all Settings of the Album, must be version safe
-- Stores "current" environment State as well as all "current" States of the Jobs
+# ** First start
+# - Dont copy Settings -> reference Settings -> Overlays
+# ** CLI
+# - Set options inside State
+# - Execute Jobs
+# ** On Job
+# - Diff with prev State
+# - Send Changes to Job -> Job can weight changes to minimize work
+# - Afer Job apply diff to Jobs State and safe in .ppub
+# ** .ppub
+# - Stores all Settings of the Album, must be version safe
+# - Stores "current" environment State as well as all "current" States of the Jobs
 
-* Jobs
-** Convert Jobs
-- Tracks -> format -> Track Folder
-- If Track changes / Rename change that track and its hash
-- Safely "remove" unknown interfering files -> junk
-- Only rerender when required -> least amount of work
-** TODO  Merge Jobs
-- Merge audio Files into single File
-- Full -> also needs format
-- Video -> also has format
-- can this be combined with Folder worker somehow? -> express mergeing within format Setting file syntax
-** Generator
-- extract metadata to generate ex. description timestamps
-** Publish
-- This is its own category
-- Upload the Project to YT
-- Amuse API
-* Configuration
-- Global Config for Jobs
-- Global defualt metadata
-- Metadata can be overwritten by local Config
-- Dialog for writing local/global config
-- Aeson Serialization
-* Environment Scan
-- Folder -> Album Name
-- best fit Image, Text and Video -> Cover, metadata, YT Description, Video
-- Default add cur dir to tracked Folders
-- Copy global Settings to local instance
-* CLI
-- Add single Tracks or new Tracked Folders
+# * Jobs
+# ** Convert Jobs
+# - Tracks -> format -> Track Folder
+# - If Track changes / Rename change that track and its hash
+# - Safely "remove" unknown interfering files -> junk
+# - Only rerender when required -> least amount of work
+# ** TODO  Merge Jobs
+# - Merge audio Files into single File
+# - Full -> also needs format
+# - Video -> also has format
+# - can this be combined with Folder worker somehow? -> express mergeing within format Setting file syntax
+# ** Generator
+# - extract metadata to generate ex. description timestamps
+# ** Publish
+# - This is its own category
+# - Upload the Project to YT
+# - Amuse API
+# * Configuration
+# - Global Config for Jobs
+# - Global defualt metadata
+# - Metadata can be overwritten by local Config
+# - Dialog for writing local/global config
+# - Aeson Serialization
+# * Environment Scan
+# - Folder -> Album Name
+# - best fit Image, Text and Video -> Cover, metadata, YT Description, Video
+# - Default add cur dir to tracked Folders
+# - Copy global Settings to local instance
+# * CLI
+# - Add single Tracks or new Tracked Folders
 
-* Store
-** KILL Version Safe in case of additional future Flags
-Aseson
-** TODO Order Overwrite
-- Store if order has been set for tracks
-- Needs to update in case of track deletion
-* FFMpeg
-- Add custom FFMPEG scripts
-- Scripts are Modules
-- Folder Modules -> foreach file
-- concat Modules -> concat to single
-- Metadata
-* V2
-** Validate
-- Modules produce Targets
-- Targets can be validated by cached / move
-- unvalidated Targets get rerendered
-** Modules
-- Store info about last State
-- calculate nessercery tasks
+# * Store
+# ** KILL Version Safe in case of additional future Flags
+# Aseson
+# ** TODO Order Overwrite
+# - Store if order has been set for tracks
+# - Needs to update in case of track deletion
+# * FFMpeg
+# - Add custom FFMPEG scripts
+# - Scripts are Modules
+# - Folder Modules -> foreach file
+# - concat Modules -> concat to single
+# - Metadata
+# * V2
+# ** Validate
+# - Modules produce Targets
+# - Targets can be validated by cached / move
+# - unvalidated Targets get rerendered
+# ** Modules
+# - Store info about last State
+# - calculate nessercery tasks
+
+* TODO
+- Unicode support

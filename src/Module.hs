@@ -95,8 +95,8 @@ matchCached = do
   trkListPrev <- fmap (prevTrkList . state) ask
   trkList     <- fmap trackList ask
 
-  let cachedTrksSrcs = (toList . Map.map source . filterWithKey (const . (`elem` cached)))
-  return $ on matchSource cachedTrksSrcs trkListPrev trkList
+  let cachedTrksSrcs = filterWithKey (const . (`elem` cached)) trkListPrev
+  return $ on matchSource (toList . Map.map source) cachedTrksSrcs trkList
 
 metadataChanged :: String -> String -> ReaderT Env IO (Maybe Task)
 metadataChanged prev new = do
@@ -139,5 +139,8 @@ runModule trkList modName render = do
   newCfg <- (tryLoad $ modDir </> modName) >>= \case Just a ->return a; Nothing ->throwIO . ModuleConfigError $ "Module Config does not exist!"
   modState <- fmap (fromMaybe (ModuleState mempty newCfg mempty)) . tryLoad . combine "cache" $ modName
 
-  newCache <- flip runReaderT (Env modState newCfg trkList) $ matchCached >>= sync (render newCfg)
+  newCache <- flip runReaderT (Env modState newCfg trkList) $ do
+    matched <- matchCached
+    lift . putStrLn . unlines . map show $ matched
+    sync (render newCfg) matched
   createFile (combine "cache" modName) $ ModuleState newCache newCfg trkList
