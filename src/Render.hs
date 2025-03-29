@@ -15,6 +15,7 @@ import Data.List (intercalate)
 import Prelude hiding (lookup)
 import Data.Maybe (fromMaybe)
 import System.Directory (removeFile, renameFile, createDirectoryIfMissing)
+import Data.Char (toLower)
 
 data RenderSettings = MergedRender{ -- TODO No seperation
     supported :: [Metadata],
@@ -37,8 +38,8 @@ getSource :: ReaderT Env IO String
 getSource = do
   trks <- fmap tracks ask
   return $ case trks of
-    (trk:[]) -> "-i " ++ show (source trk) ++ " -map 0:0"
-    _ -> concatMap (flip (++) " " . (++) "-i " . show . source) trks ++
+    (trk:[]) -> "-i \"" ++ source trk ++ "\" -map 0:0"
+    _ -> concatMap (flip (++) "\" " . (++) "-i \"" . source) trks ++
           concatMap (flip (++) ":a:0]" . (++) "[" . show) [0..length trks] ++
           "concat=n="++show (length trks)++":v=0:a=1[outa] -map \"[outa]\""
 
@@ -56,6 +57,10 @@ getOutput = do
                               (intercalate "_" . Prelude.map (flip (!) (Attr Title))) . Prelude.map metadata $ trks
   return . combine dir $ name ++ "." ++ format cfg
 
+getAttrName :: Attr -> String
+getAttrName Nr = "track"
+getAttrName Year = "date"
+getAttrName a = map toLower . show $ a
 
 getMetadata :: Metadata -> ReaderT Env IO FilePath
 getMetadata (File Cover) = do
@@ -72,16 +77,16 @@ getMetadata (File Video) = do
     Nothing -> ""
 getMetadata (Attr a) = do
   mtdt <- fmap (metadata . head . tracks) ask
-  let res = \attr -> "-metadata:s " ++ show a ++ "=" ++ show attr ++ " "
+  let res = \attr -> "-metadata " ++ show a ++ "=\"" ++ attr ++ "\" "
   return . fromMaybe "" . fmap res . Data.Map.lookup (Attr a) $ mtdt
-  
+
 
 ffrender :: ReaderT Env IO FilePath
 ffrender = do
   src <- getSource
   mtdt <- (=<<) (fmap concat . mapM getMetadata) . fmap (supported . settings) $ ask
   out <- getOutput
-  lift . liftA2 (>>) putStrLn callCommand $ "ffmpeg " ++ src ++ " " ++ mtdt ++ " " ++ show out
+  lift . liftA2 (>>) putStrLn callCommand $ "ffmpeg " ++ src ++ " " ++ mtdt ++ "\"" ++ out ++ "\""
   return out
 
 ffupdate :: FilePath -> ReaderT Env IO FilePath
@@ -89,7 +94,7 @@ ffupdate from = do
   out <- fmap outDir ask
   mtdt <- (=<<) (fmap concat . mapM getMetadata) . fmap (supported . settings) $ ask
   lift $ do
-    liftA2 (>>) putStrLn callCommand $ "ffmpeg -i " ++ show from ++ " -c copy " ++ mtdt ++ " " ++ show out
+    liftA2 (>>) putStrLn callCommand $ "ffmpeg -i \"" ++ from ++ "\" -c copy " ++ mtdt ++ "\"" ++ out ++ "\""
     removeFile from
     return out
 

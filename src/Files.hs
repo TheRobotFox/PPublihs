@@ -55,7 +55,7 @@ searchFile t name = find (liftM2 (&&) ((==name) . map toLower . dropExtension . 
 md5Str :: BS.ByteString -> Checksum
 md5Str = Checksum . concatMap f . BS.unpack . MD5.hash
   where
-    f = liftM2 (++) (digit . fromIntegral . (.&. 15)) (digit . fromIntegral . (`shiftR` 4))
+    f = liftM2 (++) (digit . fromIntegral . (`shiftR` 4)) (digit . fromIntegral . (.&. 15))
     digit i = [(concat [['0'..'9'],['a'..]])!!i]
 
 moveJunk :: FilePath -> IO ()

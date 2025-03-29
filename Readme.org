@@ -109,3 +109,6 @@
 
 * TODO
 - Unicode support
+- Keep file handles
+- Relate back Files
+- Track metadata

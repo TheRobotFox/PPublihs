@@ -19,12 +19,13 @@ import Data.List (find, filter)
 import Data.Data ( Typeable )
 import Files (moveJunk, md5Str, tryLoad, createFile, Checksum (Checksum))
 import Data.Function ( on )
-import Data.Maybe (fromMaybe, catMaybes)
+import Data.Maybe (fromMaybe, catMaybes, isNothing)
 import Track (Track (metadata, source), Metadata (..), Attr (..), File (..))
 import Env (appName)
 import Control.Monad.Trans.Reader (ReaderT(runReaderT), ask)
 import Render (RenderSettings (..), Task (..))
 import Control.Monad.Trans.Class (lift)
+import Control.Monad (when)
 
 
 data ModuleState = ModuleState{cache :: Map String (FilePath, Checksum), config :: RenderSettings, prevTrkList :: Map String (Track Checksum)}
@@ -73,10 +74,13 @@ getCached = do
   oldCfg <- fmap (config . state) ask
   newCfg <- fmap newconfig ask
 
-  dirty <- if oldCfg /= newCfg then
+  dirty <- if oldCfg /= newCfg then do
+      lift . putStrLn $ "Module Config has Changed, invalidating Cache!"
       return $ keys modCache
     else
       lift . fmap (keys . Map.filter (id)) . mapM (\(p,c)->fmap ((/= c) . md5Str) . BS.readFile $ p) $ modCache
+
+  when (length dirty > 0) $ lift . putStrLn $ "Cleaning invalid Cache Files"
 
   lift . mapM_ (moveJunk . fst . (modCache!)) $ dirty -- move Invalid File tto Junk
   return . Data.List.filter (not . (`elem` dirty)) . keys $ modCache
@@ -137,10 +141,14 @@ runModule trkList modName render = do
 
   modDir <- getXdgDirectory XdgConfig . combine appName $ "modules"
   newCfg <- (tryLoad $ modDir </> modName) >>= \case Just a ->return a; Nothing ->throwIO . ModuleConfigError $ "Module Config does not exist!"
-  modState <- fmap (fromMaybe (ModuleState mempty newCfg mempty)) . tryLoad . combine "cache" $ modName
+  loadState <- tryLoad . combine "cache" $ modName
+
+  when (isNothing loadState) . putStrLn $ "Could not load previous Module State!"
+  let modState = fromMaybe (ModuleState mempty newCfg mempty) loadState
 
   newCache <- flip runReaderT (Env modState newCfg trkList) $ do
     matched <- matchCached
     lift . putStrLn . unlines . map show $ matched
     sync (render newCfg) matched
+  putStrLn . unlines . map show . toList $ newCache
   createFile (combine "cache" modName) $ ModuleState newCache newCfg trkList

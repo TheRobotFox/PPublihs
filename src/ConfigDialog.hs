@@ -14,7 +14,7 @@ import GHC.Generics (Generic)
 import qualified Crypto.Hash.MD5 as MD5
 import Data.Function (on)
 import qualified Data.ByteString.Char8 as BC
-import Control.Monad (guard)
+import Control.Monad (guard, when)
 import Paths_PPublihs (version)
 
 -- Definitions
@@ -74,6 +74,7 @@ getConfig askFor = do
 
   (stored, ver) <- loadStored
   vHash <- dialogHash
+  when (ver/=vHash) $ lift . putStrLn $ "Settings Format has been updated! Please consider updating your Settings."
 
   let present = union stored . defaults $ dialog
   if ver==vHash && askFor == AskStartup then

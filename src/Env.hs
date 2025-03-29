@@ -7,7 +7,7 @@
 module Env (EnvField(..), Env(..), Config, EnvironmentException, loadTracks, appName, getSettings) where
 
 import System.Directory (listDirectory, doesFileExist, getCurrentDirectory, getXdgDirectory, XdgDirectory (XdgConfig))
-import Data.List (sortOn, groupBy, elemIndex, (\\))
+import Data.List (sortOn, groupBy, elemIndex, (\\), intersect)
 import Files (FileType(..), searchFile, filterFiles)
 import Data.Map (Map, filterWithKey, fromList, union, (!), toList)
 import qualified Data.Map as Map
@@ -25,6 +25,8 @@ import Data.Time.Calendar (toGregorian)
 import Control.Monad.Trans.Reader ( ReaderT(runReaderT) )
 import Data.Maybe (mapMaybe, fromMaybe)
 import GHC.Generics (Generic)
+import GHC.IO.FD (openFile, openFileWith)
+import System.IO (IOMode(ReadWriteMode), readFile')
 
 
 data EnvField = MD Metadata | TrackDirs | Order deriving (Generic, Eq, Ord, Show)
@@ -108,12 +110,13 @@ getTracks dirs = do
 getOrder :: FilePath -> [String] -> IO [String]
 getOrder ordFile trackSrcs = do
   let tracks = map takeBaseName trackSrcs
-  ord <- (fmap (lines) . readFile $ ordFile) `catch` \(_ :: IOException)->putStrLn ("Could not read Track order from "++ordFile) >> return []
+  ord <- (fmap (lines) . readFile' $ ordFile) `catch` \(_ :: IOException)->putStrLn ("Could not read Track order from "++ordFile) >> return []
 
-  let invalid = ord \\ tracks
-  when (invalid /= empty) $ throwIO (UnknownTrackName $ "Invalid Tracks in '"++ordFile++"': " ++ show invalid)
+  -- let invalid = ord \\ tracks
+  -- when (invalid /= empty) $ throwIO (UnknownTrackName $ "Invalid Tracks in '"++ordFile++"': " ++ show invalid)
+  let valid = intersect ord tracks
 
-  let res = nubOrd $ ord ++ tracks
+  let res = nubOrd $ valid ++ tracks
 
   writeFile ordFile . unlines $ res
   return res
