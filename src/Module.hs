@@ -42,7 +42,7 @@ instance Exception ModuleExecExpection
   -- Generate Default Modues
 
 getModules :: IO [FilePath]
-getModules = do cfgDir <- getXdgDirectory XdgConfig "ppublish"
+getModules = do cfgDir <- getXdgDirectory XdgConfig appName
                 listDirectory $ combine cfgDir "modules"
 
 

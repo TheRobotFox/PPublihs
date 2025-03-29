@@ -4,11 +4,11 @@
 {-# OPTIONS_GHC -Wno-deferred-out-of-scope-variables #-}
 -- | PPublihs Environment
 
-module Env (Env(..), Config, EnvironmentException, loadTracks, appName, getSettings) where
+module Env (EnvField(..), Env(..), Config, EnvironmentException, loadTracks, appName, getSettings) where
 
 import System.Directory (listDirectory, doesFileExist, getCurrentDirectory, getXdgDirectory, XdgDirectory (XdgConfig))
 import Data.List (sortOn, groupBy, elemIndex, (\\))
-import Files (FileType(..), searchFile)
+import Files (FileType(..), searchFile, filterFiles)
 import Data.Map (Map, filterWithKey, fromList, union, (!), toList)
 import qualified Data.Map as Map
 import System.FilePath (takeBaseName, takeFileName, combine)
@@ -18,16 +18,16 @@ import Control.Monad (when, unless)
 import GHC.Base (empty)
 import Data.Containers.ListUtils ( nubOrd )
 import Track (Metadata (..), Track(..), Attr (..), File (..))
-import ConfigDialog (getConfig, askMissing, Dialog (Dialog))
+import ConfigDialog (getConfig, Dialog (Dialog), AskFor (AskStartup))
 import Data.Aeson (ToJSONKey, FromJSONKey, ToJSON, FromJSON)
 import Data.Time (getCurrentTime, UTCTime (utctDay))
 import Data.Time.Calendar (toGregorian)
 import Control.Monad.Trans.Reader ( ReaderT(runReaderT) )
-import Data.Maybe (mapMaybe)
+import Data.Maybe (mapMaybe, fromMaybe)
 import GHC.Generics (Generic)
 
 
-data EnvField = MD Metadata | TrackDirs | Order deriving (Generic, Eq, Ord)
+data EnvField = MD Metadata | TrackDirs | Order deriving (Generic, Eq, Ord, Show)
 
 instance ToJSONKey EnvField
 instance FromJSONKey EnvField
@@ -51,7 +51,7 @@ envFields = fromList
    (MD . Attr $ Artist     , ("Artist Name"                       , return Nothing                               )),
    (MD . Attr $ Genre      , ("Genre"                             , return Nothing                               )),
    (TrackDirs              , ("Directories to search for Tracks"  , return . Just $ "."                          )),
-   (Order                  , ("File with Track Order"             , findFile TextFile "order"                    ))]
+   (Order                  , ("File with Track Order"             , return . Just $ "order.txt"                  ))]
   where
     findFile:: Files.FileType -> String -> IO (Maybe FilePath)
     findFile t n = getCurrentDirectory >>= listDirectory >>= return . searchFile t n
@@ -61,7 +61,6 @@ globalFields :: forall a. Map EnvField a -> Map EnvField a
 globalFields = filterWithKey (const . (`elem` select))
   where select = [MD . Attr $ Artist,
                   MD . Attr $ Genre]
-
 
 
 appName :: String
@@ -81,8 +80,8 @@ getSettings = do
         \in " ++ show globalConfPath ++ " or via settings command\n\
         \Select Default by leaving empty\n"
 
-  globalConf <- runReaderT (getConfig globalConfPath askMissing) $ on Dialog globalFields questions fields
-  runReaderT (getConfig "ppconf.json" askMissing) $ Dialog questions globalConf
+  globalConf <- runReaderT (getConfig AskStartup) $ on (Dialog globalConfPath) globalFields questions fields
+  runReaderT (getConfig AskStartup) $ Dialog "ppconf.json" questions (union globalConf fields)
     where questions = (Map.map fst envFields)
 
 
@@ -100,15 +99,16 @@ duplicateTracks = filter ((> 1) .length)
 
 getTracks :: [FilePath] -> IO [FilePath]
 getTracks dirs = do
-  tracks <- fmap concat . sequence . map listDirectory $ dirs
+  tracks <- fmap (filterFiles AudioFile . concat) . sequence . map listDirectory $ dirs
   let duplicateNames = duplicateTracks tracks
   unless (null duplicateNames) . throwIO . DuplicateTracksError $ "Multiple Tracks have the same name: " ++ show duplicateNames
   return tracks
 
 -- make total order for tracks
 getOrder :: FilePath -> [String] -> IO [String]
-getOrder ordFile tracks = do
-  ord <- (fmap (lines) . readFile $ ordFile) `catch` \(e :: IOException)->putStrLn ("Could not read Track order from "++ordFile) >> return []
+getOrder ordFile trackSrcs = do
+  let tracks = map takeBaseName trackSrcs
+  ord <- (fmap (lines) . readFile $ ordFile) `catch` \(_ :: IOException)->putStrLn ("Could not read Track order from "++ordFile) >> return []
 
   let invalid = ord \\ tracks
   when (invalid /= empty) $ throwIO (UnknownTrackName $ "Invalid Tracks in '"++ordFile++"': " ++ show invalid)
@@ -121,7 +121,7 @@ getOrder ordFile tracks = do
 loadMetadata :: Map Metadata String -> [String] -> [FilePath] -> Map String (Track String)
 loadMetadata mtdt ord = fromList . map (liftA2 (,) takeBaseName fn)
   where fn src = Track src $ union mtdt . fromList $ [(Attr Title, takeBaseName src),
-                                                      (Attr Nr, show . fmap (+1) . (`elemIndex` ord) . takeBaseName $ src)]
+                                                      (Attr Nr, show . (+1) . fromMaybe 0 . (`elemIndex` ord) . takeBaseName $ src)]
 
 loadTracks :: Map EnvField String -> IO (Map String (Track String))
 loadTracks env = do

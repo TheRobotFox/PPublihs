@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- | Tracks
 
 module Track where
@@ -8,6 +9,9 @@ import Data.Map (Map, filterWithKey, (!), keys, fromList)
 import Data.Function (on)
 import Files (Checksum (Checksum), md5Str)
 import qualified Data.ByteString as BS
+import Control.Exception (IOException, throwIO, Exception, catch)
+import System.Process (readProcess)
+import Text.Read (readMaybe)
 
 data Attr = Year | Artist | Album | Genre | Title | Nr
            deriving (Generic, Show, Eq, Ord)
@@ -42,3 +46,14 @@ getChecksum (Track src mtdt) = do
   return $ Track s m
   where cksm a@(Attr _) = return . Checksum $ mtdt!a
         cksm a@(File _) = fmap md5Str . BS.readFile $ mtdt!a
+
+data FFException = ReadAudioLength String | RunFFProbe String deriving (Show)
+
+instance Exception FFException
+
+getAudioLength:: FilePath -> IO Float
+getAudioLength filepath = (do probe <- readProcess "ffprobe" ["-i", filepath, "-show_entries", "format=duration", "-v", "quiet", "-of", "csv=p=0"] []
+                              case readMaybe probe of
+                                Just l -> return l
+                                Nothing -> throwIO $ ReadAudioLength probe)
+                          `catch` \(e :: IOException) -> throwIO (RunFFProbe (show e))

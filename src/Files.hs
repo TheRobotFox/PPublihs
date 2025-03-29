@@ -40,13 +40,6 @@ getTypeExts ImageFile = [".png", ".jpg", ".tiff", ".jpeg", ".webp", ".bmp", ".gi
 getTypeExts AudioFile = [".mp3", ".flac", ".wav", ".ogg"]
 getTypeExts TextFile = [".txt"]
 
--- getAudioLength:: FilePath -> IO Float
--- getAudioLength filepath = (do probe <- readProcess "ffprobe" ["-i", filepath, "-show_entries", "format=duration", "-v", "quiet", "-of", "csv=p=0"] []
---                               case readMaybe probe of
---                                 Just l -> return l
---                                 Nothing -> throwIO $ ReadAudioLength probe)
---                           `catch` \(e :: IOException) -> throwIO (RunFFProbe (show e))
-
 fileType:: FilePath -> Maybe FileType
 fileType filepath = find (((takeExtension filepath) `elem`) . getTypeExts)
         [TextFile, AudioFile, VideoFile, ImageFile]
