@@ -28,7 +28,7 @@ type Cmd = (Map String (Track String) -> [String] -> StateT Config IO ())
 commands :: [(String, String, Cmd)]
 commands = [("help", "Print this page Commands", help),
             ("info", "Print info about Current Environment", info),
-            ("run", "Run Module [modules...]", run),
+            ("sync", "Sync Module [modules ...]", sync),
             ("lsmod", "List available Modules", \_ _ -> lift . join . fmap (putStrLn . show) $ getModules),
             ("exit", "Exit PPublihs", cmdError Exit),
             ("echo", "For testing", const (lift . putStrLn . show))]
@@ -65,9 +65,9 @@ info trkList _ =do
           len <- getAudioLength . source $ track
           return [(metadata track)!(Attr Nr) ++ ".", name, ":", showFFloat (Just 2) len "s"]
 
-run :: Cmd
-run trks ["all"] = run trks =<< lift getModules
-run trks mods = do
+sync :: Cmd
+sync trks ["all"] = sync trks =<< lift getModules
+sync trks mods = do
   cks <- lift . mapM getChecksum $ trks
   lift $ mapM_ (runModule cks <*> (render trks)) mods
 
