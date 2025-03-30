@@ -1,21 +1,23 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE LambdaCase #-}
 -- | FFMpeg Wrapper
 
 module Render where
 import GHC.Generics ( Generic )
 import Data.Aeson (FromJSON, ToJSON)
 import Track (Track (..), Metadata (..), Attr (..), File (..))
-import Data.Map ((!), Map, lookup)
-import System.FilePath (combine)
+import Data.Map ((!), Map, lookup, mapWithKey, toList)
+import System.FilePath (combine, replaceBaseName)
 import System.Process (callCommand)
 import Control.Monad.Trans.Reader ( ReaderT (runReaderT), ask )
 import Control.Monad.Trans.Class (lift)
 import Data.List (intercalate)
 import Prelude hiding (lookup)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import System.Directory (removeFile, renameFile, createDirectoryIfMissing)
 import Data.Char (toLower)
+import Data.Tuple (swap)
 
 data RenderSettings = MergedRender{ -- TODO No seperation
     supported :: [Metadata],
@@ -34,14 +36,32 @@ data Task = Render String | UpdateMetadata FilePath String | Move FilePath Strin
 
 data Env = Env{settings :: RenderSettings, outDir :: FilePath, tracks :: [Track String]}
 
+getAdditionalSources :: ReaderT Env IO [(String, String)]
+getAdditionalSources = do
+  mtdt <- fmap (metadata . head . tracks) ask
+  md <- fmap (supported . settings) ask
+  let mdFiles = mapMaybe (\case (File a, b)-> if (File a) `elem` md then Just (a,b) else Nothing;_->Nothing) . toList $ mtdt
+
+  return . liftA2 (zipWith (,)) (map (\x-> "-i \""++x++"\" ") . snd) (map (uncurry getAdditional) . flip zip [0..] . fst) . unzip $ mdFiles
+
+-- getAdditional :: File -> Int -> ReaderT Env IO String
+getAdditional :: File -> Int -> [Char]
+getAdditional Cover i = " -map " ++ show i ++ ":0 -id3v2_version 3 -metadata:s:v title=\"Album cover\" -metadata:s:v comment=\"Cover (front)\" "
+getAdditional Video i = " -map " ++ show i ++ ":v:0 "
+getAdditional _ _ = error "Not Implemented"
+
 getSource :: ReaderT Env IO String
 getSource = do
+  additional <- getAdditionalSources
   trks <- fmap tracks ask
-  return $ case trks of
-    (trk:[]) -> "-i \"" ++ source trk ++ "\" -map 0:0"
-    _ -> concatMap (flip (++) "\" " . (++) "-i \"" . source) trks ++
-          concatMap (flip (++) ":a:0]" . (++) "[" . show) [0..length trks] ++
-          "concat=n="++show (length trks)++":v=0:a=1[outa] -map \"[outa]\""
+
+  return $ concat (map fst additional)
+    ++ case trks of
+    (trk:[]) -> "-i \"" ++ source trk ++ "\" -map "++ show (length additional) ++":0"
+    _ -> concatMap (flip (++) "\" " . (++) "-i \"" . source) trks ++ "-filter_complex \"" ++
+          concatMap (flip (++) ":a:0]" . (++) "[" . show . (+ length additional)) [0..length trks] ++
+          "concat=n="++show (length trks)++":v=0:a=1[outa]\" -map \"[outa]\""
+    ++ concat (map snd additional)
 
 
 getOutput :: ReaderT Env IO FilePath
@@ -63,22 +83,11 @@ getAttrName Year = "date"
 getAttrName a = map toLower . show $ a
 
 getMetadata :: Metadata -> ReaderT Env IO FilePath
-getMetadata (File Cover) = do
-  trks <- fmap tracks ask
-  return $ case lookup (File Cover) . metadata . head $ trks of
-    (Just cover ) -> "-i " ++ cover ++ " -map " ++ show (length trks)
-         ++ ":0 -id3v2_version 3 -metadata:s:v title=\"Album cover\" -metadata:s:v comment=\"Cover (front)\" "
-    Nothing -> ""
-getMetadata (File Video) = do
-  trks <- fmap tracks ask
-  return $ case lookup (File Video) . metadata . head $ trks of
-    (Just video ) -> "-i " ++ video ++ " -map " ++ show (length trks)
-         ++ ":v:0  "
-    Nothing -> ""
 getMetadata (Attr a) = do
   mtdt <- fmap (metadata . head . tracks) ask
-  let res = \attr -> "-metadata " ++ show a ++ "=\"" ++ attr ++ "\" "
+  let res = \attr -> "-metadata " ++ getAttrName a ++ "=\"" ++ attr ++ "\" "
   return . fromMaybe "" . fmap res . Data.Map.lookup (Attr a) $ mtdt
+getMetadata (File _) = return ""
 
 
 ffrender :: ReaderT Env IO FilePath
@@ -93,10 +102,11 @@ ffupdate :: FilePath -> ReaderT Env IO FilePath
 ffupdate from = do
   out <- getOutput
   mtdt <- (=<<) (fmap concat . mapM getMetadata) . fmap (supported . settings) $ ask
+  let tmp = replaceBaseName out "tmp"
   lift $ do
-    liftA2 (>>) putStrLn callCommand $ "ffmpeg -i \"" ++ from ++ "\" -c copy " ++ mtdt ++ "\"" ++ out ++ "\""
+    liftA2 (>>) putStrLn callCommand $ "ffmpeg -i \"" ++ from ++ "\" " ++ mtdt ++ "-map 0:a:0 -map 0:v:0 -c copy \"" ++ tmp ++ "\" -y"
     removeFile from
-    return out
+  move tmp
 
 move :: FilePath -> ReaderT Env IO FilePath
 move from = do

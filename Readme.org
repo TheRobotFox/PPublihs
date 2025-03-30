@@ -108,8 +108,7 @@
 # - calculate nessercery tasks
 
 * TODO
-- Unicode support
-- Keep file handles
-- Relate back Files
 - Track metadata
 - BlackList
+- Global State cache instead of IO reads
+- Edit Settings
