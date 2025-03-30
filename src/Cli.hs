@@ -83,13 +83,13 @@ catchesState (StateT f) handlers = StateT $ \s0 -> (f s0) `catches` map (fmap (f
 cli :: Config -> IO ()
 cli cfg = (fmap fst . flip runStateT cfg . forever $ do
 
-  tracks <- lift . loadTracks $ cfg
   inp <- lift $ do
     cd <- getCurrentDirectory
     putStr $ cd ++ " ~> "
     hFlush stdout
     getLine
 
+  tracks <- lift . loadTracks $ cfg
   (exec tracks . filter (/=[]) . splitOn " " $ inp)
     `catchesState`
     [Handler (\(e :: IOException) -> putStrLn $ "An Error occured while executing command '"++inp++"': " ++ show e)]

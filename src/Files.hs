@@ -7,7 +7,7 @@ module Files (FileType (..), filterFiles, searchFile, tryLoad, createFile, moveJ
 
 import System.FilePath (takeExtension, takeFileName, combine, takeDirectory)
 import System.FilePath.Posix (dropExtension)
-import Control.Exception (Exception)
+import Control.Exception (Exception, IOException, catch)
 import Data.Data (Typeable)
 import GHC.Generics (Generic)
 import Control.Monad (liftM2, guard, MonadPlus (mzero))
@@ -59,7 +59,8 @@ md5Str = Checksum . concatMap f . BS.unpack . MD5.hash
     digit i = [(concat [['0'..'9'],['a'..]])!!i]
 
 moveJunk :: FilePath -> IO ()
-moveJunk file = createDirectoryIfMissing True "junk" >> renameFile file (combine "junk" file)
+moveJunk file = createDirectoryIfMissing True "junk" >> renameFile file (combine "junk" . takeFileName $ file)
+          `catch` \(_ :: IOException)->putStrLn ("Failed to Trash" ++ file)
 
 createFile :: ToJSON e => FilePath -> e -> IO ()
 createFile file insert = do

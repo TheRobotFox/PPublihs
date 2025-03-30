@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- | Modules
 
 module Module (runModule, getModules, generateDefaultModules) where
@@ -8,24 +9,24 @@ import System.Directory (listDirectory, createDirectoryIfMissing, getXdgDirector
 import Data.Aeson (FromJSON, ToJSON, encode)
 -- import Data.Aeson.Encode.Pretty (encodePretty)
 import GHC.Generics (Generic)
-import Data.Map ( Map, keys, fromList, filterWithKey, (!), toList)
+import Data.Map ( Map, keys, fromList, filterWithKey, (!), toList, union)
 import qualified Data.Map as Map
 import Prelude hiding (lookup)
 import System.FilePath (combine, (</>))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
-import Control.Exception (throwIO, Exception)
+import Control.Exception (throwIO, Exception, IOException, catch)
 import Data.List (find, filter)
 import Data.Data ( Typeable )
 import Files (moveJunk, md5Str, tryLoad, createFile, Checksum (Checksum))
 import Data.Function ( on )
-import Data.Maybe (fromMaybe, catMaybes, isNothing)
+import Data.Maybe (fromMaybe, catMaybes, isNothing, isJust)
 import Track (Track (metadata, source), Metadata (..), Attr (..), File (..))
 import Env (appName)
 import Control.Monad.Trans.Reader (ReaderT(runReaderT), ask)
 import Render (RenderSettings (..), Task (..))
 import Control.Monad.Trans.Class (lift)
-import Control.Monad (when)
+import Control.Monad (when, filterM)
 
 
 data ModuleState = ModuleState{cache :: Map String (FilePath, Checksum), config :: RenderSettings, prevTrkList :: Map String (Track Checksum)}
@@ -48,7 +49,7 @@ getModules = do cfgDir <- getXdgDirectory XdgConfig appName
 
 
 mp3mtdt :: [Metadata]
-mp3mtdt = [File Cover, Attr Artist, Attr Album, Attr Year, Attr Title, Attr Genre]
+mp3mtdt = [File Cover, Attr Artist, Attr Album, Attr Year, Attr Title, Attr Genre, Attr Nr]
 
 defaultModules :: [(String, RenderSettings)]
 defaultModules = [("flac", SingleRender [File Cover] [] "flac"),
@@ -78,12 +79,15 @@ getCached = do
       lift . putStrLn $ "Module Config has Changed, invalidating Cache!"
       return $ keys modCache
     else
-      lift . fmap (keys . Map.filter (id)) . mapM (\(p,c)->fmap ((/= c) . md5Str) . BS.readFile $ p) $ modCache
+      lift . fmap (keys . Map.filter (id)) . mapM (uncurry verifyCache) $ modCache
 
-  when (length dirty > 0) $ lift . putStrLn $ "Cleaning invalid Cache Files"
+  when (length dirty > 0) $ lift . putStrLn $ "Cleaning dirty Cache Files: " ++ show dirty
 
-  lift . mapM_ (moveJunk . fst . (modCache!)) $ dirty -- move Invalid File tto Junk
+  lift . mapM_ (moveJunk . fst . (modCache!)) $ dirty -- move Invalid File to Junk
   return . Data.List.filter (not . (`elem` dirty)) . keys $ modCache
+
+  where verifyCache path cksm = (fmap ((/= cksm) . md5Str) . BS.readFile $ path)
+            `catch` \(_ :: IOException)->putStrLn ("Could not read Track from Modcache") >> return True
 
 matchSource :: [(String, Checksum)] -> [(String, Checksum)] -> [(Maybe String, Maybe String)]
 matchSource [] x =  map ((,) Nothing . Just . fst) x
@@ -95,7 +99,7 @@ matchSource prev (x:xs) = (match, Just . fst $ x) : case match of
 
 matchCached :: ReaderT Env IO [(Maybe String, Maybe String)]
 matchCached = do
-  cached      <- getCached
+  cached   <- getCached
   trkListPrev <- fmap (prevTrkList . state) ask
   trkList     <- fmap trackList ask
 
@@ -118,11 +122,15 @@ metadataChanged prev new = do
  where matches mtdt = on (/=) (filterWithKey (const . (`elem` mtdt)). metadata)
 
 
-sync :: ([Task] -> IO [(String,FilePath)]) -> [(Maybe String, Maybe String)] -> ReaderT Env IO (Map String (FilePath, Checksum))
-sync render matches = do
- tasks <- fmap catMaybes . mapM (uncurry getTask) $ matches
- outputs <- lift $ render tasks
- lift . fmap fromList . mapM (sequence . fmap makeCache) $ outputs
+sync :: ([Task] -> IO [(String,FilePath)]) -> ReaderT Env IO (Map String (FilePath, Checksum))
+sync render = do
+  matches  <- matchCached
+  tasks    <- fmap catMaybes . mapM (uncurry getTask) $ matches
+  outputs  <- lift $ render tasks
+  cacheNew <- lift . fmap fromList . mapM (sequence . fmap makeCache) $ outputs
+  keep <- fmap (map (fromMaybe (error "") . fst)) . filterM (uncurry $ isunchanged) $ matches
+  cacheKeep <- fmap (filterWithKey (const . (`elem` keep)) . cache . state) ask
+  return $ union cacheNew cacheKeep
 
   where makeCache = sequence . liftA2 (,) id (fmap md5Str . BS.readFile)
 
@@ -133,8 +141,9 @@ sync render matches = do
           file <- fmap (fst . flip (!) a . cache . state) ask
           lift . removeFile $ file
           return Nothing
-        getTask Nothing Nothing = error "absurd Track"
 
+        isunchanged (Just a) (Just b) = fmap isNothing . metadataChanged a $ b
+        isunchanged _ _ = return False
 
 runModule :: Map String (Track Checksum) -> String -> (RenderSettings -> [Task] -> IO [(String, FilePath)]) -> IO ()
 runModule trkList modName render = do
@@ -146,9 +155,5 @@ runModule trkList modName render = do
   when (isNothing loadState) . putStrLn $ "Could not load previous Module State!"
   let modState = fromMaybe (ModuleState mempty newCfg mempty) loadState
 
-  newCache <- flip runReaderT (Env modState newCfg trkList) $ do
-    matched <- matchCached
-    lift . putStrLn . unlines . map show $ matched
-    sync (render newCfg) matched
-  putStrLn . unlines . map show . toList $ newCache
+  newCache <- flip runReaderT (Env modState newCfg trkList) . sync $ render newCfg
   createFile (combine "cache" modName) $ ModuleState newCache newCfg trkList

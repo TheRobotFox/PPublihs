@@ -91,7 +91,7 @@ ffrender = do
 
 ffupdate :: FilePath -> ReaderT Env IO FilePath
 ffupdate from = do
-  out <- fmap outDir ask
+  out <- getOutput
   mtdt <- (=<<) (fmap concat . mapM getMetadata) . fmap (supported . settings) $ ask
   lift $ do
     liftA2 (>>) putStrLn callCommand $ "ffmpeg -i \"" ++ from ++ "\" -c copy " ++ mtdt ++ "\"" ++ out ++ "\""
@@ -100,7 +100,7 @@ ffupdate from = do
 
 move :: FilePath -> ReaderT Env IO FilePath
 move from = do
-  to <- fmap outDir ask
+  to <- getOutput
   lift $ do
     putStrLn $ "Move " ++ from ++ " to " ++ to
     renameFile from to
