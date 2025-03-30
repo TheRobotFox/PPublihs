@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE BlockArguments #-}
 -- | FFMpeg Wrapper
 
 module Render where
@@ -50,18 +51,15 @@ getAdditional Cover i = " -map " ++ show i ++ ":0 -id3v2_version 3 -metadata:s:v
 getAdditional Video i = " -map " ++ show i ++ ":v:0 "
 getAdditional _ _ = error "Not Implemented"
 
-getSource :: ReaderT Env IO String
-getSource = do
-  additional <- getAdditionalSources
+getSource :: Int -> ReaderT Env IO String
+getSource offset = do
   trks <- fmap tracks ask
 
-  return $ concat (map fst additional)
-    ++ case trks of
-    (trk:[]) -> "-i \"" ++ source trk ++ "\" -map "++ show (length additional) ++":0"
+  return $ case trks of
+    (trk:[]) -> "-i \"" ++ source trk ++ "\" -map "++ show offset ++":0"
     _ -> concatMap (flip (++) "\" " . (++) "-i \"" . source) trks ++ "-filter_complex \"" ++
-          concatMap (flip (++) ":a:0]" . (++) "[" . show . (+ length additional)) [0..length trks] ++
+          concatMap (flip (++) ":a:0]" . (++) "[" . show . (+ offset)) [0..length trks] ++
           "concat=n="++show (length trks)++":v=0:a=1[outa]\" -map \"[outa]\""
-    ++ concat (map snd additional)
 
 
 getOutput :: ReaderT Env IO FilePath
@@ -82,29 +80,33 @@ getAttrName Nr = "track"
 getAttrName Year = "date"
 getAttrName a = map toLower . show $ a
 
-getMetadata :: Metadata -> ReaderT Env IO FilePath
-getMetadata (Attr a) = do
+getAttr :: Attr -> ReaderT Env IO FilePath
+getAttr a = do
   mtdt <- fmap (metadata . head . tracks) ask
   let res = \attr -> "-metadata " ++ getAttrName a ++ "=\"" ++ attr ++ "\" "
   return . fromMaybe "" . fmap res . Data.Map.lookup (Attr a) $ mtdt
-getMetadata (File _) = return ""
 
 
 ffrender :: ReaderT Env IO FilePath
 ffrender = do
-  src <- getSource
-  mtdt <- (=<<) (fmap concat . mapM getMetadata) . fmap (supported . settings) $ ask
+  mdFiles <- getAdditionalSources
+  src <- getSource $ length mdFiles
+  attrs <- (=<<) (fmap concat . mapM \case Attr a -> getAttr a;_-> return "") . fmap (supported . settings) $ ask
   out <- getOutput
-  lift . liftA2 (>>) putStrLn callCommand $ "ffmpeg " ++ src ++ " " ++ mtdt ++ "\"" ++ out ++ "\""
+  lift . liftA2 (>>) putStrLn callCommand $
+    "ffmpeg " ++ concatMap fst mdFiles ++ src ++ " " ++ concatMap snd mdFiles ++ attrs ++ "\"" ++ out ++ "\""
   return out
 
 ffupdate :: FilePath -> ReaderT Env IO FilePath
 ffupdate from = do
+  mdFiles <- getAdditionalSources
   out <- getOutput
-  mtdt <- (=<<) (fmap concat . mapM getMetadata) . fmap (supported . settings) $ ask
+  attrs <- (=<<) (fmap concat . mapM \case Attr a -> getAttr a;_-> return "") . fmap (supported . settings) $ ask
   let tmp = replaceBaseName out "tmp"
   lift $ do
-    liftA2 (>>) putStrLn callCommand $ "ffmpeg -i \"" ++ from ++ "\" " ++ mtdt ++ "-map 0:a:0 -map 0:v:0 -c copy \"" ++ tmp ++ "\" -y"
+    liftA2 (>>) putStrLn callCommand $
+      "ffmpeg " ++ concatMap fst mdFiles ++ "-i \"" ++ from ++ "\" "
+      ++ concatMap snd mdFiles ++ attrs ++ "-map "++show (length mdFiles)++":a:0 -map "++ show (length mdFiles)++ ":v:0 -c copy \"" ++ tmp ++ "\" -y"
     removeFile from
   move tmp
 

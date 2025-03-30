@@ -14,7 +14,7 @@ import qualified Data.ByteString as BS
 import System.FilePath (takeBaseName, takeFileName, combine)
 import Data.Function (on)
 import Control.Exception (Exception, throwIO, IOException, catch)
-import Control.Monad (unless, when)
+import Control.Monad (unless)
 import Data.Containers.ListUtils ( nubOrd )
 import Track (Metadata (..), Track(..), Attr (..), File (..), matchSource)
 import ConfigDialog (getConfig, Dialog (Dialog), AskFor (AskStartup))

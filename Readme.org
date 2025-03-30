@@ -112,3 +112,4 @@
 - BlackList
 - Global State cache instead of IO reads
 - Edit Settings
+- Join short Tracks
