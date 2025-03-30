@@ -21,7 +21,7 @@ import Data.Data ( Typeable )
 import Files (moveJunk, md5Str, tryLoad, createFile, Checksum (Checksum))
 import Data.Function ( on )
 import Data.Maybe (fromMaybe, catMaybes, isNothing, isJust)
-import Track (Track (metadata, source), Metadata (..), Attr (..), File (..))
+import Track (Track (metadata, source), Metadata (..), Attr (..), File (..), trackCacheEntry, matchSource)
 import Env (appName)
 import Control.Monad.Trans.Reader (ReaderT(runReaderT), ask)
 import Render (RenderSettings (..), Task (..))
@@ -89,13 +89,6 @@ getCached = do
   where verifyCache path cksm = (fmap ((/= cksm) . md5Str) . BS.readFile $ path)
             `catch` \(_ :: IOException)->putStrLn ("Could not read Track from Modcache") >> return True
 
-matchSource :: [(String, Checksum)] -> [(String, Checksum)] -> [(Maybe String, Maybe String)]
-matchSource [] x =  map ((,) Nothing . Just . fst) x
-matchSource x [] =  map (flip (,) Nothing . Just . fst) x
-matchSource prev (x:xs) = (match, Just . fst $ x) : case match of
-                       Just rm -> matchSource ( Data.List.filter ((/= rm) . fst) prev) xs
-                       Nothing -> matchSource prev xs
-  where match = fmap fst . find (on (==) snd x) $ prev
 
 matchCached :: ReaderT Env IO [(Maybe String, Maybe String)]
 matchCached = do
@@ -127,13 +120,12 @@ sync render = do
   matches  <- matchCached
   tasks    <- fmap catMaybes . mapM (uncurry getTask) $ matches
   outputs  <- lift $ render tasks
-  cacheNew <- lift . fmap fromList . mapM (sequence . fmap makeCache) $ outputs
+  cacheNew <- lift . fmap fromList . mapM (sequence . fmap trackCacheEntry) $ outputs
   keep <- fmap (map (fromMaybe (error "") . fst)) . filterM (uncurry $ isunchanged) $ matches
   cacheKeep <- fmap (filterWithKey (const . (`elem` keep)) . cache . state) ask
   return $ union cacheNew cacheKeep
 
-  where makeCache = sequence . liftA2 (,) id (fmap md5Str . BS.readFile)
-
+  where
         getTask :: Maybe String -> Maybe String -> ReaderT Env IO (Maybe Task)
         getTask (Just a) (Just b) = metadataChanged a b
         getTask Nothing (Just b) = return . Just . Render $ b

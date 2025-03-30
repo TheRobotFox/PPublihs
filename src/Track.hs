@@ -12,6 +12,7 @@ import qualified Data.ByteString as BS
 import Control.Exception (IOException, throwIO, Exception, catch)
 import System.Process (readProcess)
 import Text.Read (readMaybe)
+import Data.List (find)
 
 data Attr = Year | Artist | Album | Genre | Title | Nr
            deriving (Generic, Show, Eq, Ord)
@@ -57,3 +58,15 @@ getAudioLength filepath = (do probe <- readProcess "ffprobe" ["-i", filepath, "-
                                 Just l -> return l
                                 Nothing -> throwIO $ ReadAudioLength probe)
                           `catch` \(e :: IOException) -> throwIO (RunFFProbe (show e))
+
+-- Try to match Tracks to previous State
+matchSource :: [(String, Checksum)] -> [(String, Checksum)] -> [(Maybe String, Maybe String)]
+matchSource [] x =  map ((,) Nothing . Just . fst) x
+matchSource x [] =  map (flip (,) Nothing . Just . fst) x
+matchSource prev (x:xs) = (match, Just . fst $ x) : case match of
+                       Just rm -> matchSource (filter ((/= rm) . fst) prev) xs
+                       Nothing -> matchSource prev xs
+  where match = fmap fst . find (on (==) snd x) $ prev
+
+trackCacheEntry :: FilePath -> IO (FilePath, Checksum)
+trackCacheEntry = sequence . liftA2 (,) id (fmap md5Str . BS.readFile)

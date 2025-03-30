@@ -1,32 +1,30 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE LambdaCase #-}
-{-# OPTIONS_GHC -Wno-deferred-out-of-scope-variables #-}
 -- | PPublihs Environment
 
 module Env (EnvField(..), Env(..), Config, EnvironmentException, loadTracks, appName, getSettings) where
 
 import System.Directory (listDirectory, doesFileExist, getCurrentDirectory, getXdgDirectory, XdgDirectory (XdgConfig))
 import Data.List (sortOn, groupBy, elemIndex, (\\), intersect)
-import Files (FileType(..), searchFile, filterFiles)
+import Files (FileType(..), searchFile, filterFiles, tryLoad, createFile, md5Str)
 import Data.Map (Map, filterWithKey, fromList, union, (!), toList)
 import qualified Data.Map as Map
+import qualified Data.ByteString as BS
 import System.FilePath (takeBaseName, takeFileName, combine)
 import Data.Function (on)
 import Control.Exception (Exception, throwIO, IOException, catch)
-import Control.Monad (when, unless)
-import GHC.Base (empty)
+import Control.Monad (unless, when)
 import Data.Containers.ListUtils ( nubOrd )
-import Track (Metadata (..), Track(..), Attr (..), File (..))
+import Track (Metadata (..), Track(..), Attr (..), File (..), matchSource)
 import ConfigDialog (getConfig, Dialog (Dialog), AskFor (AskStartup))
 import Data.Aeson (ToJSONKey, FromJSONKey, ToJSON, FromJSON)
 import Data.Time (getCurrentTime, UTCTime (utctDay))
 import Data.Time.Calendar (toGregorian)
 import Control.Monad.Trans.Reader ( ReaderT(runReaderT) )
-import Data.Maybe (mapMaybe, fromMaybe)
+import Data.Maybe (mapMaybe, fromMaybe, listToMaybe)
 import GHC.Generics (Generic)
-import GHC.IO.FD (openFile, openFileWith)
-import System.IO (IOMode(ReadWriteMode), readFile')
+import System.IO (readFile')
 
 
 data EnvField = MD Metadata | TrackDirs | Order deriving (Generic, Eq, Ord, Show)
@@ -110,15 +108,25 @@ getTracks dirs = do
 getOrder :: FilePath -> [String] -> IO [String]
 getOrder ordFile trackSrcs = do
   let tracks = map takeBaseName trackSrcs
-  ord <- (fmap (lines) . readFile' $ ordFile) `catch` \(_ :: IOException)->putStrLn ("Could not read Track order from "++ordFile) >> return []
+  ord' <- (fmap (lines) . readFile' $ ordFile) `catch` \(_ :: IOException)->putStrLn ("Could not read Track order from "++ordFile) >> return []
 
-  -- let invalid = ord \\ tracks
-  -- when (invalid /= empty) $ throwIO (UnknownTrackName $ "Invalid Tracks in '"++ordFile++"': " ++ show invalid)
+  -- Handle Track Renames
+  cache <- fmap (fromMaybe []) . tryLoad . combine "cache" $ "_order"
+  new <- mapM (sequence . liftA2 (,) takeBaseName (fmap md5Str . BS.readFile)) trackSrcs
+  let matched = matchSource cache new
+
+  let findMatch t = fromMaybe t . listToMaybe . mapMaybe (\(a,b)-> if a == Just t then b else Nothing) $ matched
+      ord = map findMatch ord'
+
+  let invalid = ord \\ tracks
+  unless (null invalid) $ throwIO (UnknownTrackName $ "Invalid Tracks in '"++ordFile++"': " ++ show invalid)
+
   let valid = intersect ord tracks
-
   let res = nubOrd $ valid ++ tracks
 
   writeFile ordFile . unlines $ res
+
+  createFile (combine "cache" "_order") new
   return res
 
 loadMetadata :: Map Metadata String -> [String] -> [FilePath] -> Map String (Track String)
