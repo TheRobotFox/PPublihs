@@ -86,15 +86,14 @@ getAttr a = do
   let res = \attr -> "-metadata " ++ getAttrName a ++ "=\"" ++ attr ++ "\" "
   return . fromMaybe "" . fmap res . Data.Map.lookup (Attr a) $ mtdt
 
-
 ffrender :: ReaderT Env IO FilePath
 ffrender = do
   mdFiles <- getAdditionalSources
   src <- getSource $ length mdFiles
   attrs <- (=<<) (fmap concat . mapM \case Attr a -> getAttr a;_-> return "") . fmap (supported . settings) $ ask
+
   out <- getOutput
-  lift . liftA2 (>>) putStrLn callCommand $
-    "ffmpeg " ++ concatMap fst mdFiles ++ src ++ " " ++ concatMap snd mdFiles ++ attrs ++ "\"" ++ out ++ "\""
+  lift . liftA2 (>>) putStrLn callCommand $ "ffmpeg " ++ concatMap fst mdFiles ++ src ++ " " ++ concatMap snd mdFiles ++ attrs ++ "\"" ++ out ++ "\""
   return out
 
 ffupdate :: FilePath -> ReaderT Env IO FilePath
@@ -103,10 +102,11 @@ ffupdate from = do
   out <- getOutput
   attrs <- (=<<) (fmap concat . mapM \case Attr a -> getAttr a;_-> return "") . fmap (supported . settings) $ ask
   let tmp = replaceBaseName out "tmp"
+      audioIdx = show . length $ mdFiles
   lift $ do
     liftA2 (>>) putStrLn callCommand $
       "ffmpeg " ++ concatMap fst mdFiles ++ "-i \"" ++ from ++ "\" "
-      ++ concatMap snd mdFiles ++ attrs ++ "-map "++show (length mdFiles)++":a:0 -map "++ show (length mdFiles)++ ":v:0 -c copy \"" ++ tmp ++ "\" -y"
+      ++ concatMap snd mdFiles ++ attrs ++ "-map "++ audioIdx ++":a:0 -map "++ audioIdx ++ ":v:0 -c copy \"" ++ tmp ++ "\" -y"
     removeFile from
   move tmp
 

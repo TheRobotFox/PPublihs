@@ -60,7 +60,7 @@ md5Str = Checksum . concatMap f . BS.unpack . MD5.hash
 
 moveJunk :: FilePath -> IO ()
 moveJunk file = createDirectoryIfMissing True "junk" >> renameFile file (combine "junk" . takeFileName $ file)
-          `catch` \(_ :: IOException)->putStrLn ("Failed to Trash" ++ file)
+          `catch` \(_ :: IOException)->putStrLn ("Failed to Trash " ++ file ++ " might have been deleted!")
 
 createFile :: ToJSON e => FilePath -> e -> IO ()
 createFile file insert = do
