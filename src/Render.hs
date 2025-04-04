@@ -20,20 +20,17 @@ import System.Directory (removeFile, renameFile, createDirectoryIfMissing)
 import Data.Char (toLower)
 import Data.Tuple (swap)
 
-data RenderSettings = MergedRender{ -- TODO No seperation
-    supported :: [Metadata],
-    filters :: [String],
-    format :: String
-  } | SingleRender{
-    supported :: [Metadata],
-    filters :: [String],
-    format :: String
-  } deriving (Generic, Eq)
+data Format = Mp3 | Wav | Flac | Mp4 deriving (Generic)
 
-instance FromJSON RenderSettings
-instance ToJSON RenderSettings
+type RenderSettings = (Format, [(String, String)])
 
-data Task = Render String | UpdateMetadata FilePath String | Move FilePath String
+supported :: Format -> [Metadata]
+supported Mp3 = [File Cover, Attr Artist, Attr Album, Attr Year, Attr Title, Attr Genre, Attr Nr]
+supported Wav = []
+supported Flac = [File Cover, Attr Artist, Attr Album, Attr Year, Attr Title, Attr Genre, Attr Nr]
+supported Mp4 = [File Video, Attr Artist, Attr Album, Attr Year, Attr Title, Attr Genre, Attr Nr]
+
+data Task = Render [String] | UpdateMetadata FilePath [String] | Move FilePath [String]
 
 data Env = Env{settings :: RenderSettings, outDir :: FilePath, tracks :: [Track String]}
 
@@ -118,9 +115,9 @@ move from = do
     renameFile from to
     return to
 
-render :: Map String (Track String) -> FilePath -> RenderSettings -> [Task] -> IO [(String, FilePath)]
-render trkList out cfg@(SingleRender _ _ _) tasks =
-  mapM ((\(trk, path)->sequence (trk, runReaderT path $ Env cfg out [trkList!trk])) . exec) tasks
+render :: Map String (Track String) -> FilePath -> RenderSettings -> Task -> IO (String, FilePath)
+render trkList out cfg task =
+  (\(trk, path)->sequence . runReaderT path $ Env cfg out [trkList!trk]) . exec $ task
  
   where exec (Render trk) = (trk, ffrender)
         exec (UpdateMetadata from trk) = (trk, ffupdate from)

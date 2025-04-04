@@ -10,7 +10,7 @@ import Env (EnvironmentException, Config, loadTracks, EnvField (..))
 import Control.Monad.Trans.Class (lift)
 import Control.Exception (Exception, catches, throwIO, Handler(Handler), IOException)
 import System.Directory (getCurrentDirectory)
-import Module (getModules, runModule)
+import Module
 import Control.Monad (join, forever)
 import Control.Monad.Trans.State
 import Track (Track (..), getChecksum, getAudioLength, Metadata (..), Attr (..))

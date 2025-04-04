@@ -35,6 +35,7 @@ data Track a = Track{source :: a, metadata :: Map Metadata a} deriving (Generic)
 instance ToJSON a => ToJSON (Track a)
 instance FromJSON a => FromJSON (Track a)
 
+type TrackList = Map String (Track String)
 
 metadataValid :: Eq c => [Metadata] -> Track c -> Track c -> Bool
 metadataValid testFor = on ((==) . filterWithKey (const . (`elem` testFor))) metadata

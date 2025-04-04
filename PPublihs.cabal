@@ -30,6 +30,12 @@ library
       Env
       Files
       Module
+      Module.Cache
+      Module.Env
+      Module.Folder
+      Module.Sync
+      Module.Utils
+      Persistate
       Render
       Track
   other-modules:
