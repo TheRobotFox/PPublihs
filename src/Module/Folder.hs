@@ -1,6 +1,19 @@
+{-# LANGUAGE MultiWayIf #-}
 -- |
 
 module Module.Folder where
+import Control.Monad.Trans.Reader (ReaderT)
+import Module.Env
+
+bundleTracks :: Float -> Map String FilePath -> IO [[String]]
+bundleTracks minLength trks =
+  let relTime = mapM (fmap $ getAudioLength . source) . toList $ tracks
+      absTime = mapAccumL (\s (trk, len)-> (s+len, trk)) in
+  return . map (map snd) . groupBy ((> minLength) . on (-) fst) $ absTime
+
+getCached :: ReaderT Env IO [[String]]
+getCached = fmap (map lines . keys . cache) ask
+
 
 metadataChanged :: String -> String -> ReaderT Env IO (Maybe Task)
 metadataChanged prev new = do
@@ -16,33 +29,12 @@ metadataChanged prev new = do
               | otherwise -> Nothing
 
  where matches mtdt = on (/=) (filterWithKey (const . (`elem` mtdt)). metadata)
+  
+getTask :: Maybe String -> Maybe String -> ReaderT Env IO (Maybe Task)
+getTask (Just a) (Just b) = metadataChanged a b
+getTask Nothing (Just b) = return . Just . Render $ b
+getTask (Just a) Nothing = do
+  file <- fmap (fst . flip (!) a . cache . state) ask
+  lift . removeFile $ file
+  return Nothing
 
-bundleTracks :: ReaderT TrackList IO [[Track String]]
-bundleTracks = do
-  let track/relTime = map (fmap $ getAudioLength . source) . toList $ tracks
-      track/absTime = mapAccumL (\s (trk, len)-> (s+len, trk))
-
-
-
-
-sync :: ([Task] -> IO [(String,FilePath)]) -> ReaderT Env IO (Map String (FilePath, Checksum))
-sync (SingleRender _ _ _) render = do
-  matches  <- matchCached
-  tasks    <- fmap catMaybes . mapM (uncurry getTask) $ matches
-  outputs  <- lift $ render tasks
-  cacheNew <- lift . fmap fromList . mapM (sequence . fmap trackCacheEntry) $ outputs
-  keep <- fmap (map (fromMaybe (error "") . fst)) . filterM (uncurry $ isunchanged) $ matches
-  cacheKeep <- fmap (filterWithKey (const . (`elem` keep)) . cache . state) ask
-  return $ union cacheNew cacheKeep
-
-  where
-        getTask :: Maybe String -> Maybe String -> ReaderT Env IO (Maybe Task)
-        getTask (Just a) (Just b) = metadataChanged a b
-        getTask Nothing (Just b) = return . Just . Render $ b
-        getTask (Just a) Nothing = do
-          file <- fmap (fst . flip (!) a . cache . state) ask
-          lift . removeFile $ file
-          return Nothing
-
-        isunchanged (Just a) (Just b) = fmap isNothing . metadataChanged a $ b
-        isunchanged _ _ = return False
