@@ -30,12 +30,9 @@ library
       Env
       Files
       Module
-      Module.Cache
       Module.Env
       Module.Folder
-      Module.Module
       Module.Sync
-      Module.Utils
       Persistate
       Render
       Track
