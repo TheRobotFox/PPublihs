@@ -32,7 +32,7 @@ commands :: [(String, String, Cmd)]
 commands = [("help", "Print this page Commands", help),
             ("info", "Print info about Current Environment", info),
             ("sync", "Sync Module [modules ...]", sync),
-            ("lsmod", "List available Modules", \_ _ -> lift . join . fmap (putStrLn . unlines) $ getModules appName),
+            ("lsmod", "List available Modules", \_ _ -> lift . join . fmap (putStrLn . unlines) $ getModules),
             ("exit", "Exit PPublihs", cmdError Exit),
             ("echo", "For testing", const (lift . putStrLn . show))]
 
@@ -69,7 +69,7 @@ info trkList _ =do
           return [(metadata track)!(Attr Nr) ++ ".", name, ":", showFFloat (Just 2) len "s"]
 
 sync :: Cmd
-sync trks ["all"] = sync trks =<< lift (getModules appName)
+sync trks ["all"] = sync trks =<< lift getModules
 sync trks mods = do
   lift $ mapM_ runMod mods
   where runMod mod = runPersistate (combine "cache" mod) (ModuleState mempty None mempty) $ run mod trks

@@ -7,7 +7,7 @@ module Env (EnvField(..), Env(..), Config, EnvironmentException, loadTracks, app
 
 import System.Directory (listDirectory, doesFileExist, getCurrentDirectory, getXdgDirectory, XdgDirectory (XdgConfig))
 import Data.List (sortOn, groupBy, elemIndex, (\\), intersect)
-import Files (FileType(..), searchFile, filterFiles, tryLoad, createFile, md5Str, Checksum)
+import Files (FileType(..), searchFile, filterFiles, md5Str, Checksum)
 import Data.Map (Map, filterWithKey, fromList, union, (!), toList)
 import qualified Data.Map as Map
 import qualified Data.ByteString as BS

@@ -18,7 +18,7 @@ import System.Directory (createDirectoryIfMissing)
 import Data.Char (toLower)
 import Data.Aeson (FromJSON, ToJSON)
 
-data Format = Mp3 | Wav | Flac | Mp4 deriving (Generic, Show)
+data Format = Mp3 | Wav | Flac | Mp4 deriving (Generic, Show, Eq)
 instance FromJSON Format
 instance ToJSON Format
 

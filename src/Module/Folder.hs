@@ -16,6 +16,7 @@ import Data.List (mapAccumL, groupBy, find, intercalate)
 import Data.Function (on)
 import Data.Maybe (mapMaybe)
 import Control.Monad (join)
+import System.FilePath (combine)
 
 bundleTracks :: Float -> Map String FilePath -> IO [[String]]
 bundleTracks minLength trks = do
@@ -68,12 +69,13 @@ matchBundles old new = do
 
   return . matchBackOn matchBy old $ new
 
-getOutput :: [Track] -> FilePath
-getOutput trks = liftA2 (++) (concatMap (flip (++) ". " . flip (!) (Attr Nr)))
-                              (intercalate "_" . map (flip (!) (Attr Title))) . map metadata $ trks
+getOutput :: String -> [Track] -> FilePath
+getOutput modName trks = combine modName . liftA2 (++) (concatMap (flip (++) ". " . flip (!) (Attr Nr)))
+                                (intercalate "_" . map (flip (!) (Attr Title))) . map metadata $ trks
 
 getCache :: Maybe [String] -> Maybe [String] -> ReaderT Env IO (Maybe (String, FilePath))
 getCache _ (Just a) = do
   trks <- mapM (getTrack trackList) a
-  return $ Just (unlines a, getOutput trks)
+  modName <- fmap moduleName ask
+  return $ Just (unlines a, getOutput modName trks)
 getCache _ _ = return Nothing

@@ -1,25 +1,29 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# OPTIONS_GHC -Wno-deferred-out-of-scope-variables #-}
 -- | Modules
 
 module Module (run, getModules, generateDefaultModules, ModuleState (..)) where
-import Data.Map (Map, keys)
+import Data.Map (Map, keys, fromList, (!), toList)
+import qualified Data.Map as Map
 import Files (Checksum, md5Str)
-import Control.Exception (Exception, IOException, catch)
+import Control.Exception (Exception, throwIO, IOException, catch)
 import Data.Aeson
 import GHC.Generics (Generic)
 import Track (TrackList)
-import Control.Monad.Trans.Reader (ReaderT, ask)
-import Module.Env ( Env(Env), ModuleConfig )
+import Control.Monad.Trans.Reader (ReaderT (..), ask)
+import Control.Monad (when, filterM)
+import Module.Env ( Env(Env), ModuleConfig (..) )
+import Module.Sync (sync)
 import Data.Data (Typeable)
-import Render (RenderSettings, Format (..))
+import Render (Format (..))
 import System.Directory (getXdgDirectory, XdgDirectory (XdgConfig), listDirectory, createDirectoryIfMissing)
-import System.FilePath (combine)
+import System.FilePath (combine, (</>))
 import qualified Data.ByteString.Lazy as BSL
 import Control.Monad.Trans.Class (lift)
 import qualified Data.ByteString as BS
+import Env (appName)
+import Files (tryLoad, moveJunk)
 
 data ModuleState = ModuleState{cache :: Map String (FilePath, Checksum),
                                previousConfig :: ModuleConfig,
@@ -33,8 +37,8 @@ data ModuleExecExpection = CacheError String | ModuleConfigError String deriving
 instance Exception ModuleExecExpection
 
 
-getModules :: String -> IO [FilePath]
-getModules appName = do
+getModules :: IO [FilePath]
+getModules = do
   cfgDir <- getXdgDirectory XdgConfig appName
   listDirectory $ combine cfgDir "modules"
 
@@ -45,13 +49,13 @@ defaultModules = [("flac" , Folder (Flac, []             ) 60),
                   ("full" , Concat (Mp3 , []             )   ),
                   ("video", Concat (Mp4 , []             )   )]
 
-generateDefaultModules ::  String ->IO ()
-generateDefaultModules appName = do
+generateDefaultModules :: IO ()
+generateDefaultModules = do
   modDir <- getXdgDirectory XdgConfig . combine appName $ "modules"
   createDirectoryIfMissing True modDir
   let write (mod', cfg) = BSL.writeFile (combine modDir mod') . encode $ cfg
 
-  present <- getModules appName
+  present <- getModules
   mapM_ write $ filter (not . (`elem` present) . fst) defaultModules
 
 
@@ -64,19 +68,16 @@ getCached newCfg = do
       lift . putStrLn $ "Module Config has Changed, invalidating Cache!"
       return $ keys modCache
     else
-      lift . fmap keys . filterM (uncurry invalid) $ modCache
+      lift . fmap (map fst) . filterM (uncurry invalid . snd) . toList $ modCache
 
-  when (length dirty > 0) $ lift . putStrLn $ "Cleaning dirty Cache Files: " ++ show dirty
+  _ <- when (length dirty > 0) $ lift . putStrLn $ "Cleaning dirty Cache Files: " ++ show dirty
 
-  lift . mapM_ (moveJunk . fst . (modCache!)) $ dirty -- move Invalid File to Junk
+  lift . mapM_ (moveJunk . fst . (!) modCache) $ dirty -- move Invalid File to Junk
   return . Map.map fst . Map.filter (uncurry $ const . not . (`elem` dirty)) $ modCache
 
   where invalid path cksm = (fmap ((/= cksm) . md5Str) . BS.readFile $ path)
             `catch` \(_ :: IOException)->putStrLn ("Could not read Track from Modcache") >> return False
 
-
-getCacheEntry :: FilePath -> IO (FilePath, Checksum)
-getCacheEntry = sequence . ((,) <*> fmap md5Str . BS.readFile)
 
 run :: String -> TrackList -> ReaderT ModuleState IO ((), ModuleState)
 run modName trkList = do
@@ -90,7 +91,8 @@ run modName trkList = do
 
   cached <- getCached newCfg
   prevTrks <- fmap previousTracks ask
-  newCache <- lift . mapM getCacheEntry . runReaderT (sync newCfg) $
-    Env trkList prevTrks cached modName
+  outputs <- lift . runReaderT (sync newCfg) $ Env trkList prevTrks cached modName
+  newCache <- lift . fmap fromList . mapM (sequence . fmap getCacheEntry) $ outputs
 
-  return $ ((),ModuleState newCache newCfg trkList)
+  return $ ((), ModuleState newCache newCfg trkList)
+    where getCacheEntry = sequence . ((,) <*> fmap md5Str . BS.readFile)

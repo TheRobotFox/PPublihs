@@ -9,7 +9,7 @@ import Control.Monad.Trans.Reader (ReaderT, ask)
 import Data.Map (Map, (!))
 import GHC.Generics (Generic)
 
-data ModuleConfig = Folder RenderSettings Float | Concat RenderSettings | Custom | None deriving Generic
+data ModuleConfig = Folder RenderSettings Float | Concat RenderSettings | Custom | None deriving (Generic, Eq)
 
 instance FromJSON ModuleConfig
 instance ToJSON ModuleConfig
