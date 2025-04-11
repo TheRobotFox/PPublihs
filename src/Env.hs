@@ -124,8 +124,8 @@ getOrder ordFile trackSrcs = do
         ord = map findMatch ord'
 
     let tracks = map takeBaseName trackSrcs
-        invalid = ord \\ tracks
-    unless (null invalid) $ throwIO (UnknownTrackName $ "Invalid Tracks in '"++ordFile++"': " ++ show invalid)
+    --     invalid = ord \\ tracks
+    -- unless (null invalid) $ throwIO (UnknownTrackName $ "Invalid Tracks in '"++ordFile++"': " ++ show invalid)
 
     let res = nubOrd $ intersect ord tracks ++ tracks
 

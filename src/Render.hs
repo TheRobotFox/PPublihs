@@ -8,13 +8,13 @@ module Render where
 import GHC.Generics ( Generic )
 import Track (Track (..), Metadata (..), Attr (..), File (..))
 import Data.Map (lookup, toList)
-import System.FilePath (replaceExtension, takeDirectory)
+import System.FilePath (replaceExtension, takeDirectory, combine, takeFileName)
 import System.Process (callCommand)
 import Control.Monad.Trans.Reader ( ReaderT (runReaderT), ask )
 import Control.Monad.Trans.Class (lift)
 import Prelude hiding (lookup)
 import Data.Maybe (fromMaybe, mapMaybe)
-import System.Directory (createDirectoryIfMissing, renameFile)
+import System.Directory (createDirectoryIfMissing, renameFile, removeFile)
 import Data.Char (toLower)
 import Data.Aeson (FromJSON, ToJSON)
 
@@ -33,7 +33,7 @@ supported Mp4 = [File Video, Attr Artist, Attr Album, Attr Year, Attr Title, Att
 data Update = Path | Metadata deriving (Ord, Eq)
 
 data Task = Render | Update Update FilePath
-data Env = Env{settings :: RenderSettings, task :: Task, tracks :: [Track], out :: FilePath}
+data Env = Env{settings :: RenderSettings, tracks :: [Track], out :: FilePath}
 
 getAdditionalSources :: ReaderT Env IO [(String, String)]
 getAdditionalSources = do
@@ -51,19 +51,14 @@ getAdditional _ _ = error "Not Implemented"
 
 getSource :: Int -> ReaderT Env IO String
 getSource offset = do
-  task <- fmap task ask
-  case task of
-    Update Metadata from -> return $ "-i \""++ from ++ "\" -c:a copy "
-      ++ concatMap ((++) (" -map " ++ show offset ++ ":") . return) "av" ++ " "
-    Render -> do
-      trks <- fmap tracks ask
-      flags <- getFlags
+  trks <- fmap tracks ask
+  flags <- getFlags
 
-      return . flip (++) flags $ case trks of
-        (trk:[]) -> "-i \"" ++ path trk ++ "\" -map "++ show offset ++":0 "
-        _ -> concatMap (flip (++) "\" " . (++) "-i \"" . path) trks ++ "-filter_complex \"" ++
-              concatMap (flip (++) ":a:0]" . (++) "[" . show . (+ offset)) [0..length trks-1] ++
-              "concat=n="++show (length trks)++":v=0:a=1[outa]\" -map \"[outa]\" "
+  return . flip (++) flags $ case trks of
+    (trk:[]) -> "-i \"" ++ path trk ++ "\" -map "++ show offset ++":0 "
+    _ -> concatMap (flip (++) "\" " . (++) "-i \"" . path) trks ++ "-filter_complex \"" ++
+          concatMap (flip (++) ":a:0]" . (++) "[" . show . (+ offset)) [0..length trks-1] ++
+          "concat=n="++show (length trks)++":v=0:a=1[outa]\" -map \"[outa]\" "
 
 getOutput :: ReaderT Env IO FilePath
 getOutput = do
@@ -74,24 +69,8 @@ getOutput = do
 getFlags :: ReaderT Env IO String
 getFlags = do
   cfg <- fmap settings ask
-
   return . concatMap (uncurry makeFlag) . snd $ cfg
-
   where makeFlag p v = "-"++p++" \"" ++v ++"\" "
-
-
--- getOutput :: ReaderT Env IO FilePath
--- getOutput = do
---   dir <- fmap outDir ask
---   cfg <- fmap settings ask
---   trks <- fmap tracks ask
-
---   lift $ createDirectoryIfMissing True dir
---   let name = case cfg of
---               (MergedRender _ _ _) -> flip (!) (Attr Album) . metadata . head $ trks
---               _ -> liftA2 (++) (concatMap (flip (++) ". " . flip (!) (Attr Nr)))
---                               (intercalate "_" . Prelude.map (flip (!) (Attr Title))) . Prelude.map metadata $ trks
---   return . combine dir $ name ++ "." ++ format cfg
 
 
 getAttrName :: Attr -> String
@@ -105,21 +84,39 @@ getAttr a = do
   let res = \attr -> "-metadata " ++ getAttrName a ++ "=\"" ++ attr ++ "\" "
   return . fromMaybe "" . fmap res . Data.Map.lookup (Attr a) $ mtdt
 
+xattrs :: [Metadata] -> [Attr]
+xattrs = mapMaybe (\case Attr a -> Just a;_-> Nothing)
 
 render :: RenderSettings -> Task -> [Track] -> FilePath -> IO FilePath
-render a b@(Update Path from) c d = flip runReaderT (Env a b c d) $ do
+render a (Update Path from) c d = flip runReaderT (Env a c d) $ do
   output <- getOutput
+  lift . putStrLn $ "Renameing: " ++ from ++ " -> " ++ output
   lift $ renameFile from output
   return output
 
-render a b c d = flip runReaderT (Env a b c d) $ do
+render a (Update Metadata from) c d = flip runReaderT (Env a c d) $ do
+  let tmp = liftA2 combine takeDirectory ((++) "_tmp_" . takeFileName) from
+  lift $ renameFile from tmp
+  additional <- getAdditionalSources
+  attrs <- (=<<) (fmap concat . mapM getAttr) . fmap (xattrs . supported . fst . settings) $ ask
+  outPath <- getOutput
+  let cmd = "ffmpeg "++ concatMap fst additional ++ "-i \""++ tmp ++ "\" -c:a copy"
+          ++ concatMap ((++) $ " -map " ++ show (length additional) ++ ":" ) ["a", "v"] ++ " "
+          ++ concatMap snd additional ++ attrs ++ " -y " ++ "\"" ++ outPath ++ "\""
+
+  lift . createDirectoryIfMissing True . takeDirectory $ outPath
+  lift . liftA2 (>>) putStrLn callCommand $ cmd
+  lift $ removeFile tmp
+  return outPath
+
+render a Render c d = flip runReaderT (Env a c d) $ do
+  attrs <- (=<<) (fmap concat . mapM getAttr) . fmap (xattrs . supported . fst . settings) $ ask
+  outPath <- getOutput
   additional <- getAdditionalSources
   source <- getSource . length $ additional
-  outPath <- getOutput
-  attrs <- (=<<) (fmap concat . mapM \case Attr a -> getAttr a;_-> return "") . fmap (supported . fst . settings) $ ask
-  lift . createDirectoryIfMissing True . takeDirectory $ outPath
+  let cmd = "ffmpeg " ++ concatMap fst additional ++ source
+          ++ concatMap snd additional ++ attrs ++ " -y " ++ "\"" ++ outPath ++ "\""
 
-  lift . liftA2 (>>) putStrLn callCommand $ "ffmpeg "
-    ++ concatMap fst additional ++ source ++ concatMap snd additional
-    ++ attrs ++ "\"" ++ outPath ++ "\"" ++ " -y"
+  lift . createDirectoryIfMissing True . takeDirectory $ outPath
+  lift . liftA2 (>>) putStrLn callCommand $ cmd
   return outPath

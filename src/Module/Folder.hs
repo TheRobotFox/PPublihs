@@ -69,10 +69,14 @@ matchBundles old new = do
 
   return . matchBackOn matchBy old $ new
 
-getOutput :: String -> [Track] -> FilePath
-getOutput modName trks = combine modName . liftA2 (++) (concatMap (flip (++) ". " . flip (!) (Attr Nr)))
+getOutput :: [String] -> ReaderT Env IO FilePath
+getOutput trks = do
+  trks' <- mapM (getTrack trackList) trks
+  let sortedMtdt = sortOn ((read :: String -> Int) . flip (!) (Attr Nr)) . map metadata $ trks'
+
+  modName <- fmap moduleName ask
+  return . combine modName . liftA2 (++) (concatMap (flip (++) ". " . flip (!) (Attr Nr)))
                                 (intercalate "_" . map (flip (!) (Attr Title))) $ sortedMtdt
-  where sortedMtdt = sortOn ((read :: String -> Int) . flip (!) (Attr Nr)) . map metadata $ trks
 
 getCache :: [([String], FilePath)] -> Maybe [String] -> Maybe [String] -> ReaderT Env IO (Maybe (String, FilePath))
 getCache rendered _ (Just a) =

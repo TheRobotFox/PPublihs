@@ -24,6 +24,7 @@ import Control.Monad.Trans.Class (lift)
 import qualified Data.ByteString as BS
 import Env (appName)
 import Files (tryLoad, moveJunk)
+import Data.Aeson.Encode.Pretty (encodePretty)
 
 data ModuleState = ModuleState{cache :: Map String (FilePath, Checksum),
                                previousConfig :: ModuleConfig,
@@ -53,7 +54,7 @@ generateDefaultModules :: IO ()
 generateDefaultModules = do
   modDir <- getXdgDirectory XdgConfig . combine appName $ "modules"
   createDirectoryIfMissing True modDir
-  let write (mod', cfg) = BSL.writeFile (combine modDir mod') . encode $ cfg
+  let write (mod', cfg) = BSL.writeFile (combine modDir mod') . encodePretty $ cfg
 
   present <- getModules
   mapM_ write $ filter (not . (`elem` present) . fst) defaultModules
@@ -70,13 +71,13 @@ getCached newCfg = do
     else
       lift . fmap (map fst) . filterM (uncurry invalid . snd) . toList $ modCache
 
-  _ <- when (length dirty > 0) $ lift . putStrLn $ "Cleaning dirty Cache Files: " ++ show dirty
+  when (length dirty > 0) $ lift . putStrLn $ "Cleaning dirty Cache Files: " ++ show dirty
 
   lift . mapM_ (moveJunk . fst . (!) modCache) $ dirty -- move Invalid File to Junk
-  return . Map.map fst . Map.filter (uncurry $ const . not . (`elem` dirty)) $ modCache
+  return . Map.map fst . Map.filterWithKey (const . not . (`elem` dirty)) $ modCache
 
   where invalid path cksm = (fmap ((/= cksm) . md5Str) . BS.readFile $ path)
-            `catch` \(_ :: IOException)->putStrLn ("Could not read Track from Modcache") >> return False
+            `catch` \(_ :: IOException)->putStrLn ("Could not read Track from Modcache") >> return True
 
 
 run :: String -> TrackList -> ReaderT ModuleState IO ((), ModuleState)
