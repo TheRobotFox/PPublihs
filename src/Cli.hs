@@ -12,7 +12,7 @@ import Control.Exception (Exception, catches, throwIO, Handler(Handler), IOExcep
 import System.Directory (getCurrentDirectory)
 import Control.Monad (join, forever)
 import Control.Monad.Trans.State
-import Track (Track (..), getAudioLength, Metadata (..), Attr (..))
+import Track (Track (..), getAudioLength, Metadata (..), Attr (..), sortTracks)
 import Data.Map (Map, toList, (!))
 import Render (render)
 import Numeric (showFFloat)
@@ -54,9 +54,8 @@ info trkList _ =do
   lift . putStrLn $ "Album: " ++ cfg!(MD . Attr $ Album)
 
   lift . putStrLn $ "--- Tracks ---"
-  let trks = sortOn ((read :: String -> Int) . flip (!) (Attr Nr) . metadata . snd) . toList $ trkList
 
-  tracks <- lift $ mapM (uncurry fmtTrack) trks
+  tracks <- lift . mapM (uncurry fmtTrack) . sortTracks $ trkList
 
   lift . putStrLn . fmtTable . transpose . (:) ["Nr", "Track", "", "Length"] $ tracks
 

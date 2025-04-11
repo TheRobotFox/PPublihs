@@ -12,7 +12,7 @@ import qualified Data.ByteString as BS
 import Control.Exception (IOException, throwIO, Exception, catch)
 import System.Process (readProcess)
 import Text.Read (readMaybe)
-import Data.List (find)
+import Data.List (find, sortOn)
 
 data Attr = Year | Artist | Album | Genre | Title | Nr
            deriving (Generic, Show, Eq, Ord)
@@ -70,3 +70,6 @@ matchSource :: [(String, Checksum)] -> [(String, Checksum)] -> [(Maybe String, M
 matchSource = (map (liftA2 (on (,) $ fmap fst) fst snd) .) . matchBackOn matchBy
                 -- (map (fmap cksm) . toList)
   where matchBy prev x = find (on (==) snd x) prev
+
+sortTracks :: TrackList -> [(String, Track)]
+sortTracks = sortOn ((read :: String -> Int) . flip (!) (Attr Nr) . metadata . snd) . toList

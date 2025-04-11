@@ -43,9 +43,9 @@ getModules = do
   listDirectory $ combine cfgDir "modules"
 
 defaultModules :: [(String, ModuleConfig)]
-defaultModules = [("flac" , Folder (Flac, []             ) 60),
-                  ("mp3"  , Folder (Mp3 , []             ) 60),
-                  ("amuse", Folder (Wav , [("a","44100")]) 60),
+defaultModules = [("flac" , Folder (Flac, []             ) 40),
+                  ("mp3"  , Folder (Mp3 , []             ) 40),
+                  ("amuse", Folder (Wav , [("ar","44100")]) 40),
                   ("full" , Concat (Mp3 , []             )   ),
                   ("video", Concat (Mp4 , []             )   )]
 

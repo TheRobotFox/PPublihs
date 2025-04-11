@@ -14,7 +14,7 @@ import Control.Monad.Trans.Reader ( ReaderT (runReaderT), ask )
 import Control.Monad.Trans.Class (lift)
 import Prelude hiding (lookup)
 import Data.Maybe (fromMaybe, mapMaybe)
-import System.Directory (createDirectoryIfMissing)
+import System.Directory (createDirectoryIfMissing, renameFile)
 import Data.Char (toLower)
 import Data.Aeson (FromJSON, ToJSON)
 
@@ -45,25 +45,40 @@ getAdditionalSources = do
 
 -- getAdditional :: File -> Int -> ReaderT Env IO String
 getAdditional :: File -> Int -> [Char]
-getAdditional Cover i = " -map " ++ show i ++ ":0 -id3v2_version 3 -metadata:s:v title=\"Album cover\" -metadata:s:v comment=\"Cover (front)\" "
-getAdditional Video i = " -map " ++ show i ++ ":v:0 "
+getAdditional Cover i = "-map " ++ show i ++ ":0 -id3v2_version 3 -metadata:s:v title=\"Album cover\" -metadata:s:v comment=\"Cover (front)\" "
+getAdditional Video i = "-map " ++ show i ++ ":v:0 "
 getAdditional _ _ = error "Not Implemented"
 
 getSource :: Int -> ReaderT Env IO String
 getSource offset = do
-  trks <- fmap tracks ask
+  task <- fmap task ask
+  case task of
+    Update Metadata from -> return $ "-i \""++ from ++ "\" -c:a copy "
+      ++ concatMap ((++) (" -map " ++ show offset ++ ":") . return) "av" ++ " "
+    Render -> do
+      trks <- fmap tracks ask
+      flags <- getFlags
 
-  return $ case trks of
-    (trk:[]) -> "-i \"" ++ path trk ++ "\" -map "++ show offset ++":0"
-    _ -> concatMap (flip (++) "\" " . (++) "-i \"" . path) trks ++ "-filter_complex \"" ++
-          concatMap (flip (++) ":a:0]" . (++) "[" . show . (+ offset)) [0..length trks] ++
-          "concat=n="++show (length trks)++":v=0:a=1[outa]\" -map \"[outa]\""
+      return . flip (++) flags $ case trks of
+        (trk:[]) -> "-i \"" ++ path trk ++ "\" -map "++ show offset ++":0 "
+        _ -> concatMap (flip (++) "\" " . (++) "-i \"" . path) trks ++ "-filter_complex \"" ++
+              concatMap (flip (++) ":a:0]" . (++) "[" . show . (+ offset)) [0..length trks-1] ++
+              "concat=n="++show (length trks)++":v=0:a=1[outa]\" -map \"[outa]\" "
 
 getOutput :: ReaderT Env IO FilePath
 getOutput = do
   name <- fmap out ask
   fmt <- fmap (map toLower . show . fst . settings) ask
-  return $ replaceExtension name fmt
+  return $ name ++ "." ++ fmt
+
+getFlags :: ReaderT Env IO String
+getFlags = do
+  cfg <- fmap settings ask
+
+  return . concatMap (uncurry makeFlag) . snd $ cfg
+
+  where makeFlag p v = "-"++p++" \"" ++v ++"\" "
+
 
 -- getOutput :: ReaderT Env IO FilePath
 -- getOutput = do
@@ -90,40 +105,14 @@ getAttr a = do
   let res = \attr -> "-metadata " ++ getAttrName a ++ "=\"" ++ attr ++ "\" "
   return . fromMaybe "" . fmap res . Data.Map.lookup (Attr a) $ mtdt
 
--- ffrender :: ReaderT Env IO FilePath
--- ffrender = do
---   mdFiles <- getAdditionalSources
---   src <- getSource $ length mdFiles
---   attrs <- (=<<) (fmap concat . mapM \case Attr a -> getAttr a;_-> return "") . fmap (supported . fst . settings) $ ask
 
---   out <- getOutput
---   lift . liftA2 (>>) putStrLn callCommand $ "ffmpeg " ++ concatMap fst mdFiles ++ src ++ " " ++ concatMap snd mdFiles ++ attrs ++ "\"" ++ out ++ "\""
---   return out
+render :: RenderSettings -> Task -> [Track] -> FilePath -> IO FilePath
+render a b@(Update Path from) c d = flip runReaderT (Env a b c d) $ do
+  output <- getOutput
+  lift $ renameFile from output
+  return output
 
--- ffupdate :: FilePath -> ReaderT Env IO FilePath
--- ffupdate from = do
---   mdFiles <- getAdditionalSources
---   out <- getOutput
---   attrs <- (=<<) (fmap concat . mapM \case Attr a -> getAttr a;_-> return "") . fmap (supported . settings) $ ask
---   let tmp = replaceBaseName out "tmp"
---       audioIdx = show . length $ mdFiles
---   lift $ do
---     liftA2 (>>) putStrLn callCommand $
---       "ffmpeg " ++ concatMap fst mdFiles ++ "-i \"" ++ from ++ "\" "
---       ++ concatMap snd mdFiles ++ attrs ++ "-map "++ audioIdx ++":a:0 -map "++ audioIdx ++ ":v:0 -c copy \"" ++ tmp ++ "\" -y"
---     removeFile from
---   move tmp
-
--- move :: FilePath -> ReaderT Env IO FilePath
--- move from = do
---   to <- getOutput
---   lift $ do
---     putStrLn $ "Move " ++ from ++ " to " ++ to
---     renameFile from to
---     return to
-
-render :: RenderSettings -> Task -> [Track] -> FilePath -> IO ()
-render a b c d= flip runReaderT (Env a b c d) $ do
+render a b c d = flip runReaderT (Env a b c d) $ do
   additional <- getAdditionalSources
   source <- getSource . length $ additional
   outPath <- getOutput
@@ -133,3 +122,4 @@ render a b c d= flip runReaderT (Env a b c d) $ do
   lift . liftA2 (>>) putStrLn callCommand $ "ffmpeg "
     ++ concatMap fst additional ++ source ++ concatMap snd additional
     ++ attrs ++ "\"" ++ outPath ++ "\"" ++ " -y"
+  return outPath

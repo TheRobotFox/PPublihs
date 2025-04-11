@@ -12,18 +12,18 @@ import qualified Data.Map as Map
 import Control.Monad.Trans.Maybe (MaybeT(runMaybeT), hoistMaybe)
 import Control.Monad.Trans.Class (lift)
 import System.Directory (removeFile)
-import Data.List (mapAccumL, groupBy, find, intercalate)
+import Data.List (mapAccumL, groupBy, find, intercalate, sortOn)
 import Data.Function (on)
 import Data.Maybe (mapMaybe)
 import Control.Monad (join)
 import System.FilePath (combine)
 
-bundleTracks :: Float -> Map String FilePath -> IO [[String]]
-bundleTracks minLength trks = do
-  relTime <- mapM (sequence . fmap getAudioLength) . toList $ trks
+bundleTracks :: Float -> [(String, FilePath)] -> IO [[String]]
+bundleTracks minLength sortedTracks = do
+  relTime <- mapM (sequence . fmap getAudioLength) $ sortedTracks
 
   let absTime = snd . mapAccumL (\s (trk, len)-> liftA2 (,) (+len) ((,) trk) s) 0 $ relTime
-  return . map (map fst) . groupBy (\a b -> (>=) minLength . on (-) snd a $ b) $ absTime
+  return . map (map fst) . groupBy (\a b -> (>=) minLength . on (-) snd b $ a) $ absTime
 
 getCached :: ReaderT Env IO [[String]]
 getCached = fmap (map lines . keys . cache) ask
@@ -71,11 +71,14 @@ matchBundles old new = do
 
 getOutput :: String -> [Track] -> FilePath
 getOutput modName trks = combine modName . liftA2 (++) (concatMap (flip (++) ". " . flip (!) (Attr Nr)))
-                                (intercalate "_" . map (flip (!) (Attr Title))) . map metadata $ trks
+                                (intercalate "_" . map (flip (!) (Attr Title))) $ sortedMtdt
+  where sortedMtdt = sortOn ((read :: String -> Int) . flip (!) (Attr Nr)) . map metadata $ trks
 
-getCache :: Maybe [String] -> Maybe [String] -> ReaderT Env IO (Maybe (String, FilePath))
-getCache _ (Just a) = do
-  trks <- mapM (getTrack trackList) a
-  modName <- fmap moduleName ask
-  return $ Just (unlines a, getOutput modName trks)
-getCache _ _ = return Nothing
+getCache :: [([String], FilePath)] -> Maybe [String] -> Maybe [String] -> ReaderT Env IO (Maybe (String, FilePath))
+getCache rendered _ (Just a) =
+  case fmap snd . find ((==) a . fst) $ rendered of
+    Just out -> return $ Just (unlines a, out)
+    _ -> do
+      c <- fmap cache ask
+      return . Just $ (,) <*> (!) c $ unlines a
+getCache _ _ _ = return Nothing

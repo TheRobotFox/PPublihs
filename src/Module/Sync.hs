@@ -3,12 +3,11 @@
 module Module.Sync where
 import Module.Env (Env(..))
 import Data.Maybe (catMaybes)
-import Render (render, supported)
+import Render (render, supported, Task)
 import Module.Env (getTrack, ModuleConfig (..))
 import Control.Monad.Trans.Reader (ReaderT, ask)
 import Module.Folder (getCached, bundleTracks, matchBundles, getOutput, getTask, getCache)
-import Track (Track(..))
-import qualified Data.Map as Map
+import Track (Track(..), sortTracks)
 import Control.Monad.Trans.Class (lift)
 
 
@@ -16,13 +15,21 @@ sync :: ModuleConfig -> ReaderT Env IO ([(String, FilePath)])
 sync (Folder cfg minLength) = do
   trkList <- fmap trackList ask
   cachedBundles <- getCached
-  newBundles <- lift . bundleTracks minLength . Map.map path $ trkList
+  lift . putStrLn . show $ cachedBundles
+  newBundles <- lift . bundleTracks minLength . map (fmap path) . sortTracks $ trkList
+  lift . putStrLn . show $ newBundles
 
   matched <- matchBundles cachedBundles newBundles
-  tasks' <- fmap catMaybes . mapM (uncurry $ getTask (supported . fst $ cfg)) $ matched
-  tasks <- mapM (sequence . fmap (mapM (getTrack trackList))) tasks'
+  tasks <- fmap catMaybes . mapM (uncurry $ getTask (supported . fst $ cfg)) $ matched
 
-  modName <- fmap moduleName ask
-  lift . mapM_ ((uncurry $ render cfg) <*> getOutput modName . snd) $ tasks
+  outputs <- mapM (uncurry renderBundle) $ tasks
 
-  fmap catMaybes . mapM (uncurry getCache) $ matched
+  fmap catMaybes . mapM (uncurry (getCache outputs)) $ matched
+
+  where renderBundle :: Task -> [String] -> ReaderT Env IO ([String], FilePath)
+        renderBundle task bundle = do
+          trks <- mapM (getTrack trackList) bundle
+          modName <- fmap moduleName ask
+
+          output <- lift . render cfg task trks . getOutput modName $ trks
+          return (bundle, output)
