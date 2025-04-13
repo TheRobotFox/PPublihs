@@ -1,12 +1,16 @@
 module Main (main) where
 
-import Cli
-import Env
+import Cli (cli, Env (Env))
+import Env (loadTracks, getSettings)
 import Module (generateDefaultModules)
-import Control.Monad.Trans.Reader (ReaderT(runReaderT))
+import Control.Monad.Trans.State (StateT(runStateT))
 
 main :: IO ()
 main = do
-  cfg <- getSettings
   generateDefaultModules
-  cli cfg
+  cfg <- getSettings
+  tracks <- loadTracks $ cfg
+  -- load state file
+  newState <- fmap snd . runStateT cli $ Env tracks cfg
+  -- store state file
+  return ()

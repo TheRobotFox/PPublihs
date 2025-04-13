@@ -108,8 +108,6 @@
 # - calculate nessercery tasks
 
 * TODO
-- Track metadata
 - BlackList
-- Global State cache instead of IO reads
 - Edit Settings
-- Join short Tracks
+- Description Module

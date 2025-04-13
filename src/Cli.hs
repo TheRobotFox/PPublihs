@@ -1,12 +1,12 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 -- | Commandline Interface
 
-module Cli (cli) where
+module Cli (cli, Env (Env)) where
 import Data.Data (Typeable)
-import Data.List (find, intercalate, sortOn, transpose)
+import Data.List (find, intercalate, transpose)
 import System.IO ( hFlush, stdout )
 import Data.List.Split ( splitOn )
-import Env (EnvironmentException, Config, loadTracks, EnvField (..), appName)
+import Env (EnvironmentException, Config, EnvField (..))
 import Control.Monad.Trans.Class (lift)
 import Control.Exception (Exception, catches, throwIO, Handler(Handler), IOException)
 import System.Directory (getCurrentDirectory)
@@ -14,7 +14,6 @@ import Control.Monad (join, forever)
 import Control.Monad.Trans.State
 import Track (Track (..), getAudioLength, Metadata (..), Attr (..), sortTracks)
 import Data.Map (Map, toList, (!))
-import Render (render)
 import Numeric (showFFloat)
 import Module (getModules, run, ModuleState (..))
 import Persistate (runPersistate)
@@ -26,21 +25,24 @@ data ExitException = Exit deriving (Show)
 instance Exception CLIException
 instance Exception ExitException
 
-type Cmd = (Map String Track -> [String] -> StateT Config IO ())
+data Env = Env{trackList :: Map String Track, config :: Config}
+
+type Cmd = [String] -> StateT Env IO ()
 
 commands :: [(String, String, Cmd)]
 commands = [("help", "Print this page Commands", help),
+            ("config", "Run the Config Dialog, either [local, global]", cmdError NotImplemented),
             ("info", "Print info about Current Environment", info),
             ("sync", "Sync Module [modules ...]", sync),
-            ("lsmod", "List available Modules", \_ _ -> lift . join . fmap (putStrLn . unlines) $ getModules),
+            ("lsmod", "List available Modules", const .  lift . join . fmap (putStrLn . unlines) $ getModules),
             ("exit", "Exit PPublihs", cmdError Exit),
-            ("echo", "For testing", const (lift . putStrLn . show))]
+            ("echo", "For testing", lift . putStrLn . show)]
 
 cmdError :: Exception a => a -> Cmd
-cmdError err = const (lift . throwIO . const err)
+cmdError err = lift . throwIO . const err
 
 help :: Cmd
-help _ _ = lift . putStrLn . intercalate "\n" . map fmt $ commands
+help _ = lift . putStrLn . intercalate "\n" . map fmt $ commands
   where fmt (cmd, desc, _) = cmd ++ replicate (cmdLen - length cmd ) ' ' ++ " - " ++ desc
         cmdLen = maximum . map (length . \(x,_,_)->x) $ commands
 
@@ -49,8 +51,9 @@ fmtTable = unlines . map concat . transpose . map (flip padCol <*> (+1) . foldr 
   where padCol p = map ((++) <*> (flip replicate ' ' . (-) p . length))
 
 info :: Cmd
-info trkList _ =do
-  cfg <- get
+info _ =do
+  cfg <- fmap config get
+  trkList <- fmap trackList get
   lift . putStrLn $ "Album: " ++ cfg!(MD . Attr $ Album)
 
   lift . putStrLn $ "--- Tracks ---"
@@ -68,22 +71,23 @@ info trkList _ =do
           return [(metadata track)!(Attr Nr) ++ ".", name, ":", showFFloat (Just 2) len "s"]
 
 sync :: Cmd
-sync trks ["all"] = sync trks =<< lift getModules
-sync trks mods = do
+sync ["all"] = sync =<< lift getModules
+sync mods = do
+  trks <- fmap trackList get
+  let runMod m = runPersistate (combine "cache" m) (ModuleState mempty None mempty) $ run m trks
   lift $ mapM_ runMod mods
-  where runMod mod = runPersistate (combine "cache" mod) (ModuleState mempty None mempty) $ run mod trks
 
 exec :: Cmd
-exec env (cmd:args) = case find (\(x,_,_)->x==cmd) commands of
-    Just (_,_,fn) -> (fn env args)
+exec (cmd:args) = case find (\(x,_,_)->x==cmd) commands of
+    Just (_,_,fn) -> (fn args)
     Nothing -> lift . putStrLn $ "Command not found!"
-exec _ [] = return ()
+exec [] = return ()
 
-catchesState :: StateT Config IO a -> [Handler a] -> StateT Config IO a
+catchesState :: StateT Env IO a -> [Handler a] -> StateT Env IO a
 catchesState (StateT f) handlers = StateT $ \s0 -> (f s0) `catches` map (fmap (flip (,) s0)) handlers
 
-cli :: Config -> IO ()
-cli cfg = (fmap fst . flip runStateT cfg . forever $ do
+cli :: StateT Env IO ()
+cli = (forever $ do
 
   inp <- lift $ do
     cd <- getCurrentDirectory
@@ -91,11 +95,10 @@ cli cfg = (fmap fst . flip runStateT cfg . forever $ do
     hFlush stdout
     getLine
 
-  tracks <- lift . loadTracks $ cfg
-  (exec tracks . filter (/=[]) . splitOn " " $ inp)
+  (exec . filter (/=[]) . splitOn " " $ inp)
     `catchesState`
     [Handler (\(e :: IOException) -> putStrLn $ "An Error occured while executing command '"++inp++"': " ++ show e)]
           )
- `catches`
+ `catchesState`
     [Handler (\(_ :: ExitException) -> return ()),
-     Handler (\(e :: EnvironmentException) -> putStrLn ("Could not create Environment, please fix Issue: " ++ show e))]
+     Handler (\(e :: EnvironmentException) -> putStrLn $ "Could not create Environment, please fix Issue: " ++ show e)]
