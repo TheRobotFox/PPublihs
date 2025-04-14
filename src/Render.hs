@@ -6,74 +6,72 @@
 
 module Render where
 import GHC.Generics ( Generic )
-import Data.Aeson (FromJSON, ToJSON)
 import Track (Track (..), Metadata (..), Attr (..), File (..))
-import Data.Map ((!), Map, lookup, mapWithKey, toList)
-import System.FilePath (combine, replaceBaseName)
+import Data.Map (lookup, toList)
+import System.FilePath (replaceExtension, takeDirectory, combine, takeFileName)
 import System.Process (callCommand)
 import Control.Monad.Trans.Reader ( ReaderT (runReaderT), ask )
 import Control.Monad.Trans.Class (lift)
-import Data.List (intercalate)
 import Prelude hiding (lookup)
 import Data.Maybe (fromMaybe, mapMaybe)
-import System.Directory (removeFile, renameFile, createDirectoryIfMissing)
+import System.Directory (createDirectoryIfMissing, renameFile, removeFile)
 import Data.Char (toLower)
-import Data.Tuple (swap)
+import Data.Aeson (FromJSON, ToJSON)
 
-data RenderSettings = MergedRender{ -- TODO No seperation
-    supported :: [Metadata],
-    filters :: [String],
-    format :: String
-  } | SingleRender{
-    supported :: [Metadata],
-    filters :: [String],
-    format :: String
-  } deriving (Generic, Eq)
+data Format = Mp3 | Wav | Flac | Mp4 deriving (Generic, Show, Eq)
+instance FromJSON Format
+instance ToJSON Format
 
-instance FromJSON RenderSettings
-instance ToJSON RenderSettings
+type RenderSettings = (Format, [(String, String)])
 
-data Task = Render String | UpdateMetadata FilePath String | Move FilePath String
+supported :: Format -> [Metadata]
+supported Mp3 = [File Cover, Attr Artist, Attr Album, Attr Year, Attr Title, Attr Genre, Attr Nr]
+supported Wav = []
+supported Flac = [File Cover, Attr Artist, Attr Album, Attr Year, Attr Title, Attr Genre, Attr Nr]
+supported Mp4 = [File Video, Attr Artist, Attr Album, Attr Year, Attr Title, Attr Genre, Attr Nr]
 
-data Env = Env{settings :: RenderSettings, outDir :: FilePath, tracks :: [Track String]}
+data Update = Path | Metadata deriving (Ord, Eq)
+
+data Task = Render | Update Update FilePath
+data Env = Env{settings :: RenderSettings, tracks :: [Track], out :: FilePath}
 
 getAdditionalSources :: ReaderT Env IO [(String, String)]
 getAdditionalSources = do
   mtdt <- fmap (metadata . head . tracks) ask
-  md <- fmap (supported . settings) ask
+  md <- fmap (supported . fst . settings) ask
   let mdFiles = mapMaybe (\case (File a, b)-> if (File a) `elem` md then Just (a,b) else Nothing;_->Nothing) . toList $ mtdt
 
   return . liftA2 (zipWith (,)) (map (\x-> "-i \""++x++"\" ") . snd) (map (uncurry getAdditional) . flip zip [0..] . fst) . unzip $ mdFiles
 
 -- getAdditional :: File -> Int -> ReaderT Env IO String
 getAdditional :: File -> Int -> [Char]
-getAdditional Cover i = " -map " ++ show i ++ ":0 -id3v2_version 3 -metadata:s:v title=\"Album cover\" -metadata:s:v comment=\"Cover (front)\" "
-getAdditional Video i = " -map " ++ show i ++ ":v:0 "
+getAdditional Cover i = "-map " ++ show i ++ ":0 -id3v2_version 3 -metadata:s:v title=\"Album cover\" -metadata:s:v comment=\"Cover (front)\" "
+getAdditional Video i = "-map " ++ show i ++ ":v:0 "
 getAdditional _ _ = error "Not Implemented"
 
 getSource :: Int -> ReaderT Env IO String
 getSource offset = do
   trks <- fmap tracks ask
+  flags <- getFlags
 
-  return $ case trks of
-    (trk:[]) -> "-i \"" ++ source trk ++ "\" -map "++ show offset ++":0"
-    _ -> concatMap (flip (++) "\" " . (++) "-i \"" . source) trks ++ "-filter_complex \"" ++
-          concatMap (flip (++) ":a:0]" . (++) "[" . show . (+ offset)) [0..length trks] ++
-          "concat=n="++show (length trks)++":v=0:a=1[outa]\" -map \"[outa]\""
-
+  return . flip (++) flags $ case trks of
+    (trk:[]) -> "-i \"" ++ path trk ++ "\" -map "++ show offset ++":0 "
+    _ -> concatMap (flip (++) "\" " . (++) "-i \"" . path) trks ++ "-filter_complex \"" ++
+          concatMap (flip (++) ":a:0]" . (++) "[" . show . (+ offset)) [0..length trks-1] ++
+          "concat=n="++show (length trks)++":v=0:a=1[outa]\" -map \"[outa]\" "
 
 getOutput :: ReaderT Env IO FilePath
 getOutput = do
-  dir <- fmap outDir ask
-  cfg <- fmap settings ask
-  trks <- fmap tracks ask
+  name <- fmap out ask
+  fmt <- fmap (map toLower . show . fst . settings) ask
+  return $ name ++ "." ++ fmt
 
-  lift $ createDirectoryIfMissing True dir
-  let name = case cfg of
-              (MergedRender _ _ _) -> flip (!) (Attr Album) . metadata . head $ trks
-              _ -> liftA2 (++) (concatMap (flip (++) ". " . flip (!) (Attr Nr)))
-                              (intercalate "_" . Prelude.map (flip (!) (Attr Title))) . Prelude.map metadata $ trks
-  return . combine dir $ name ++ "." ++ format cfg
+getFlags :: ReaderT Env IO String
+getFlags = do
+  cfg <- fmap settings ask
+  return . concatMap (uncurry makeFlag) . snd $ cfg
+  where makeFlag p v = "-"++p++" \"" ++v ++"\" "
+
 
 getAttrName :: Attr -> String
 getAttrName Nr = "track"
@@ -86,42 +84,39 @@ getAttr a = do
   let res = \attr -> "-metadata " ++ getAttrName a ++ "=\"" ++ attr ++ "\" "
   return . fromMaybe "" . fmap res . Data.Map.lookup (Attr a) $ mtdt
 
-ffrender :: ReaderT Env IO FilePath
-ffrender = do
-  mdFiles <- getAdditionalSources
-  src <- getSource $ length mdFiles
-  attrs <- (=<<) (fmap concat . mapM \case Attr a -> getAttr a;_-> return "") . fmap (supported . settings) $ ask
+xattrs :: [Metadata] -> [Attr]
+xattrs = mapMaybe (\case Attr a -> Just a;_-> Nothing)
 
-  out <- getOutput
-  lift . liftA2 (>>) putStrLn callCommand $ "ffmpeg " ++ concatMap fst mdFiles ++ src ++ " " ++ concatMap snd mdFiles ++ attrs ++ "\"" ++ out ++ "\""
-  return out
+render :: RenderSettings -> Task -> [Track] -> FilePath -> IO FilePath
+render a (Update Path from) c d = flip runReaderT (Env a c d) $ do
+  output <- getOutput
+  lift . putStrLn $ "Renameing: " ++ from ++ " -> " ++ output
+  lift $ renameFile from output
+  return output
 
-ffupdate :: FilePath -> ReaderT Env IO FilePath
-ffupdate from = do
-  mdFiles <- getAdditionalSources
-  out <- getOutput
-  attrs <- (=<<) (fmap concat . mapM \case Attr a -> getAttr a;_-> return "") . fmap (supported . settings) $ ask
-  let tmp = replaceBaseName out "tmp"
-      audioIdx = show . length $ mdFiles
-  lift $ do
-    liftA2 (>>) putStrLn callCommand $
-      "ffmpeg " ++ concatMap fst mdFiles ++ "-i \"" ++ from ++ "\" "
-      ++ concatMap snd mdFiles ++ attrs ++ "-map "++ audioIdx ++":a:0 -map "++ audioIdx ++ ":v:0 -c copy \"" ++ tmp ++ "\" -y"
-    removeFile from
-  move tmp
+render a (Update Metadata from) c d = flip runReaderT (Env a c d) $ do
+  let tmp = liftA2 combine takeDirectory ((++) "_tmp_" . takeFileName) from
+  lift $ renameFile from tmp
+  additional <- getAdditionalSources
+  attrs <- (=<<) (fmap concat . mapM getAttr) . fmap (xattrs . supported . fst . settings) $ ask
+  outPath <- getOutput
+  let cmd = "ffmpeg "++ concatMap fst additional ++ "-i \""++ tmp ++ "\" -c:a copy"
+          ++ concatMap ((++) $ " -map " ++ show (length additional) ++ ":" ) ["a", "v"] ++ " "
+          ++ concatMap snd additional ++ attrs ++ " -y " ++ "\"" ++ outPath ++ "\""
 
-move :: FilePath -> ReaderT Env IO FilePath
-move from = do
-  to <- getOutput
-  lift $ do
-    putStrLn $ "Move " ++ from ++ " to " ++ to
-    renameFile from to
-    return to
+  lift . createDirectoryIfMissing True . takeDirectory $ outPath
+  lift . liftA2 (>>) putStrLn callCommand $ cmd
+  lift $ removeFile tmp
+  return outPath
 
-render :: Map String (Track String) -> FilePath -> RenderSettings -> [Task] -> IO [(String, FilePath)]
-render trkList out cfg@(SingleRender _ _ _) tasks =
-  mapM ((\(trk, path)->sequence (trk, runReaderT path $ Env cfg out [trkList!trk])) . exec) tasks
- 
-  where exec (Render trk) = (trk, ffrender)
-        exec (UpdateMetadata from trk) = (trk, ffupdate from)
-        exec (Move from trk) = (trk, move from)
+render a Render c d = flip runReaderT (Env a c d) $ do
+  attrs <- (=<<) (fmap concat . mapM getAttr) . fmap (xattrs . supported . fst . settings) $ ask
+  outPath <- getOutput
+  additional <- getAdditionalSources
+  source <- getSource . length $ additional
+  let cmd = "ffmpeg " ++ concatMap fst additional ++ source
+          ++ concatMap snd additional ++ attrs ++ " -y " ++ "\"" ++ outPath ++ "\""
+
+  lift . createDirectoryIfMissing True . takeDirectory $ outPath
+  lift . liftA2 (>>) putStrLn callCommand $ cmd
+  return outPath

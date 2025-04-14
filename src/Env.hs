@@ -7,7 +7,7 @@ module Env (EnvField(..), Env(..), Config, EnvironmentException, loadTracks, app
 
 import System.Directory (listDirectory, doesFileExist, getCurrentDirectory, getXdgDirectory, XdgDirectory (XdgConfig))
 import Data.List (sortOn, groupBy, elemIndex, (\\), intersect)
-import Files (FileType(..), searchFile, filterFiles, tryLoad, createFile, md5Str)
+import Files (FileType(..), searchFile, filterFiles, md5Str, Checksum)
 import Data.Map (Map, filterWithKey, fromList, union, (!), toList)
 import qualified Data.Map as Map
 import qualified Data.ByteString as BS
@@ -16,15 +16,17 @@ import Data.Function (on)
 import Control.Exception (Exception, throwIO, IOException, catch)
 import Control.Monad (unless)
 import Data.Containers.ListUtils ( nubOrd )
-import Track (Metadata (..), Track(..), Attr (..), File (..), matchSource)
+import Track (Metadata (..), Track(..), Attr (..), File (..), matchSource, TrackList)
 import ConfigDialog (getConfig, Dialog (Dialog), AskFor (AskStartup))
 import Data.Aeson (ToJSONKey, FromJSONKey, ToJSON, FromJSON)
 import Data.Time (getCurrentTime, UTCTime (utctDay))
 import Data.Time.Calendar (toGregorian)
-import Control.Monad.Trans.Reader ( ReaderT(runReaderT) )
+import Control.Monad.Trans.Reader ( ReaderT(runReaderT), ask )
 import Data.Maybe (mapMaybe, fromMaybe, listToMaybe)
 import GHC.Generics (Generic)
 import System.IO (readFile')
+import Persistate (runPersistate)
+import Control.Monad.Trans.Class (lift)
 
 
 data EnvField = MD Metadata | TrackDirs | Order deriving (Generic, Eq, Ord, Show)
@@ -37,7 +39,7 @@ instance FromJSON EnvField
 
 type Config = Map EnvField String
 
-data Env = Env{config :: Config, trackList :: Map String (Track String)}
+data Env = Env{config :: Config, trackList :: TrackList}
 
 
 -- Field, Description, Default
@@ -104,39 +106,46 @@ getTracks dirs = do
   unless (null duplicateNames) . throwIO . DuplicateTracksError $ "Multiple Tracks have the same name: " ++ show duplicateNames
   return tracks
 
+readTrack :: FilePath -> IO (String, Checksum)
+readTrack = sequence . liftA2 (,) takeBaseName (fmap md5Str . BS.readFile)
+
 -- make total order for tracks
-getOrder :: FilePath -> [String] -> IO [String]
+getOrder :: FilePath -> [FilePath] -> ReaderT [(String, Checksum)] IO ([String], [(String, Checksum)])
 getOrder ordFile trackSrcs = do
-  let tracks = map takeBaseName trackSrcs
-  ord' <- (fmap (lines) . readFile' $ ordFile) `catch` \(_ :: IOException)->putStrLn ("Could not read Track order from "++ordFile) >> return []
+  cache <- ask
+  lift $ do
+    ord' <- (fmap (lines) . readFile' $ ordFile)
+      `catch` \(_ :: IOException)->putStrLn ("Could not read Track order from "++ordFile) >> return []
 
-  -- Handle Track Renames
-  cache <- fmap (fromMaybe []) . tryLoad . combine "cache" $ "_order"
-  new <- mapM (sequence . liftA2 (,) takeBaseName (fmap md5Str . BS.readFile)) trackSrcs
-  let matched = matchSource cache new
+    -- Handle Track Renames
+    new <- mapM readTrack trackSrcs
+    let matched = matchSource cache new
+        findMatch t = fromMaybe t . listToMaybe . mapMaybe (\(a,b)-> if a == Just t then b else Nothing) $ matched
+        ord = map findMatch ord'
 
-  let findMatch t = fromMaybe t . listToMaybe . mapMaybe (\(a,b)-> if a == Just t then b else Nothing) $ matched
-      ord = map findMatch ord'
+    let tracks = map takeBaseName trackSrcs
+    --     invalid = ord \\ tracks
+    -- unless (null invalid) $ throwIO (UnknownTrackName $ "Invalid Tracks in '"++ordFile++"': " ++ show invalid)
 
-  let invalid = ord \\ tracks
-  unless (null invalid) $ throwIO (UnknownTrackName $ "Invalid Tracks in '"++ordFile++"': " ++ show invalid)
+    let res = nubOrd $ intersect ord tracks ++ tracks
 
-  let valid = intersect ord tracks
-  let res = nubOrd $ valid ++ tracks
+    writeFile ordFile . unlines $ res
+    return (res, new)
 
-  writeFile ordFile . unlines $ res
+loadTrack :: Map Metadata String -> [String] -> FilePath -> IO (String, Track)
+loadTrack mtdt ord src = do
+  (name, md5) <- readTrack src
 
-  createFile (combine "cache" "_order") new
-  return res
+  return . (,) name . Track src md5 . union mtdt . fromList $
+    [(Attr Title, name),
+     (Attr Nr, show . (+1) . fromMaybe 0 . (`elemIndex` ord) $ name)]
 
-loadMetadata :: Map Metadata String -> [String] -> [FilePath] -> Map String (Track String)
-loadMetadata mtdt ord = fromList . map (liftA2 (,) takeBaseName fn)
-  where fn src = Track src $ union mtdt . fromList $ [(Attr Title, takeBaseName src),
-                                                      (Attr Nr, show . (+1) . fromMaybe 0 . (`elemIndex` ord) . takeBaseName $ src)]
-
-loadTracks :: Map EnvField String -> IO (Map String (Track String))
+loadTracks :: Map EnvField String -> IO TrackList
 loadTracks env = do
-  tracks <- getTracks . lines $ (env!TrackDirs)
-  order <- getOrder (env!Order) tracks
-  return $ loadMetadata mtdt order tracks
+  sources <- getTracks . lines $ (env!TrackDirs)
+  order <- runPersistate (combine "cache" "_order") [] $ getOrder (env!Order) sources
+  tracks <- mapM (loadTrack mtdt order) $ sources
+
+  return . fromList $ tracks
+
   where mtdt = fromList . mapMaybe (\case (MD a, b)->Just (a,b); _ -> Nothing) . toList $ env
